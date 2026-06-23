@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 
 import vehicle_trajectories
@@ -24,7 +25,7 @@ def main():
         (8.0, 2),
         (12.0, 3),
         (13.5, 2),
-        (14.5, 1.0),
+        (14.5, 1),
     ]
     x_0_p_converge = np.array([-4, 4])
     x_0_p_diverge = np.array([-4, -4])
@@ -51,9 +52,14 @@ def main():
 
     hybrid_diverge_solution = vehicle_trajectory_simulation_diverge.solve()
 
-    vehicle_trajectory_simulation_converge.plot_trajectory(
-        [hybrid_converge_solution, hybrid_diverge_solution], padding=2.0
+    # fig, axes = vehicle_trajectory_simulation_converge.plot_trajectory(
+    #     [hybrid_converge_solution, hybrid_diverge_solution], padding=2.0
+    # )
+
+    ani = vehicle_trajectory_simulation_converge.animate_solution(
+        [hybrid_converge_solution, hybrid_diverge_solution]
     )
+    plt.show()
 
 
 if __name__ == "__main__":
