@@ -52,13 +52,13 @@ def main():
 
     hybrid_diverge_solution = vehicle_trajectory_simulation_diverge.solve()
 
-    # fig, axes = vehicle_trajectory_simulation_converge.plot_trajectory(
-    #     [hybrid_converge_solution, hybrid_diverge_solution], padding=2.0
-    # )
-
-    ani = vehicle_trajectory_simulation_converge.animate_solution(
-        [hybrid_converge_solution, hybrid_diverge_solution]
+    fig, axes = vehicle_trajectory_simulation_converge.plot_trajectory(
+        [hybrid_converge_solution, hybrid_diverge_solution], padding=2.0
     )
+
+    # ani = vehicle_trajectory_simulation_converge.animate_solution(
+    #     [hybrid_converge_solution, hybrid_diverge_solution]
+    # )
     plt.show()
 
 

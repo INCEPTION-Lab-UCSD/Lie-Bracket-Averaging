@@ -171,13 +171,13 @@ class VehicleTrajectorySimulation:
             )
             ax_trajectory.add_patch(start_patch)
             t_end = solution.t[-1]
-            color = (
-                "blue"
+            color, label = (
+                ("blue", "converging")
                 if np.linalg.norm(solution(t_end)[:2] - self.x_p_goal)
                 <= target_circle_size
-                else "red"
+                else ("red", "diverging")
             )
-            ax_trajectory.plot(x_1, x_2, color=color, zorder=4)
+            ax_trajectory.plot(x_1, x_2, color=color, zorder=4, label=label)
             t_data = []
             z1_data = []
             for seg in solution.segments:
@@ -185,6 +185,7 @@ class VehicleTrajectorySimulation:
                 t_data.extend([seg.t[0], seg.t[-1]])
                 z1_data.extend([z1_val, z1_val])
             ax_mode.plot(z1_data, t_data, color=color, linewidth=2)
+        ax_trajectory.legend(loc="upper right")
         x_1 = np.linspace(x_1_min - padding, x_1_max + padding, 1000)
         x_2 = np.linspace(x_2_min - padding, x_2_max + padding, 1000)
         X1, X2 = np.meshgrid(x_1, x_2)
