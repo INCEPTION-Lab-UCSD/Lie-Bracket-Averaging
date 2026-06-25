@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+import oscillator_synchronization
 import vehicle_trajectories
 
 
-def main():
+def run_vehicle_trajectory_simulation():
     epsilon = 1 / np.sqrt(10 * np.pi)
     mode_schedule = [
         (0.0, 2),
@@ -33,7 +34,7 @@ def main():
 
     vehicle_trajectory_simulation_converge = (
         vehicle_trajectories.VehicleTrajectorySimulation(
-            x_0_p_converge, x_p_goal, epsilon, 0, 15, mode_schedule=mode_schedule
+            x_0_p_converge, x_p_goal, epsilon, 0.0, 15.0, mode_schedule=mode_schedule
         )
     )
 
@@ -52,15 +53,31 @@ def main():
 
     hybrid_diverge_solution = vehicle_trajectory_simulation_diverge.solve()
 
-    fig, axes = vehicle_trajectory_simulation_converge.plot_trajectory(
-        [hybrid_converge_solution, hybrid_diverge_solution], padding=2.0
-    )
-
-    # ani = vehicle_trajectory_simulation_converge.animate_solution(
-    #     [hybrid_converge_solution, hybrid_diverge_solution]
+    # fig, axes = vehicle_trajectory_simulation_converge.plot_trajectory(
+    #     [hybrid_converge_solution, hybrid_diverge_solution], padding=2.0
     # )
+
+    ani = vehicle_trajectory_simulation_converge.animate_solution(
+        [hybrid_converge_solution, hybrid_diverge_solution]
+    )
     plt.show()
 
 
+def run_oscillator_synchronization_simulation():
+    r = 2
+    N_2 = 1
+    kappa = 10
+    epsilon = 1 / np.sqrt(10 * np.pi)
+    omega = np.array([1, 2])
+    eta_1 = 2.5
+    N_o = 1
+
+    oscillator = oscillator_synchronization.Oscillator_Synchronization(
+        r, epsilon, kappa, omega, 0.0, 10.0
+    )
+    oscillator.solve()
+
+
 if __name__ == "__main__":
-    main()
+    # run_vehicle_trajectory_simulation()
+    run_oscillator_synchronization_simulation()

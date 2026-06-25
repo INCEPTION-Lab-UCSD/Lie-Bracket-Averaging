@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 
+import hybrid_solution
+
 
 class VehicleTrajectorySimulation:
     def __init__(self, x_0_p, x_p_goal, epsilon, t_1, t_2, mode_schedule=None):
@@ -24,13 +26,15 @@ class VehicleTrajectorySimulation:
         on each segment with z_1 frozen at that segment's mode, and the segments
         are stitched together into a single HybridSolution.
         """
-        self.x_0 = np.append(x_0_p, [1.0, 0.0, 0.0, 0.0])
         self.x_p_goal = x_p_goal
         self.epsilon = epsilon
         self.t_1 = t_1
         self.t_2 = t_2
-        self.mode_schedule = self._validate_schedule(mode_schedule)
+
         self.time_horizon = t_2 - t_1
+
+        self.mode_schedule = self._validate_schedule(mode_schedule)
+        self.x_0 = np.append(x_0_p, [1.0, 0.0, 0.0, self.mode_schedule[0][1]])
 
     def _validate_schedule(self, mode_schedule):
         schedule = sorted(mode_schedule, key=lambda item: item[0])
@@ -123,7 +127,7 @@ class VehicleTrajectorySimulation:
             segments.append(sol)
             y0 = sol.y[:, -1].copy()  # carry continuous states into next segment
 
-        return HybridSolution(segments)
+        return hybrid_solution.HybridSolution(segments)
 
     def feedback_controller(self, t, x):
         """
@@ -349,41 +353,3 @@ class VehicleTrajectorySimulation:
 
     def verify_solution(self):
         pass
-
-
-class HybridSolution:
-    """
-    Wraps the sequence of per-segment scipy.integrate solve_ivp results
-    produced by VehicleTrajectorySimultion.solve() into a single piecewise
-    trajectory, so the hybrid solution can be queried like a normal
-    solve_ivp result (callable dense output, plus concatenated .t / .y).
-    """
-
-    def __init__(self, segments):
-        self.segments = segments
-        self.t = np.concatenate([seg.t for seg in segments])
-        self.y = np.concatenate([seg.y for seg in segments], axis=1)
-        self.switch_times = [seg.t[0] for seg in segments[1:]]
-
-    def __call__(self, t):
-        """Evaluate the stitched trajectory at scalar or array time t."""
-        t_arr = np.atleast_1d(t).astype(float)
-        out = np.empty((self.segments[0].y.shape[0], len(t_arr)))
-        for i, ti in enumerate(t_arr):
-            seg = self._segment_for_time(ti)
-            out[:, i] = seg.sol(ti)
-        return out[:, 0] if np.isscalar(t) else out
-
-    def _segment_for_time(self, t):
-        for seg in self.segments:
-            if seg.t[0] - 1e-12 <= t <= seg.t[-1] + 1e-12:
-                return seg
-        # clamp out-of-range queries to the nearest boundary segment
-        return self.segments[0] if t < self.segments[0].t[0] else self.segments[-1]
-
-    def mode_at(self, t):
-        """Return the active z_1 mode (rounded to int) at time t."""
-        y = self(t)
-        if y.ndim == 1:
-            return int(round(y[5]))
-        return np.round(y[5]).astype(int)
