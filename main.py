@@ -73,9 +73,17 @@ def run_oscillator_synchronization_simulation():
     N_o = 1
 
     oscillator = oscillator_synchronization.Oscillator_Synchronization(
-        r, epsilon, kappa, omega, 0.0, 10.0
+        r,
+        epsilon,
+        kappa,
+        omega,
+        0.0,
+        10.0,
+        mode_schedule_config={"eta_1": eta_1, "N_0": N_o},
     )
-    oscillator.solve()
+    solution = oscillator.solve()
+    ani = oscillator.animate_solution(solution)
+    plt.show()
 
 
 if __name__ == "__main__":
