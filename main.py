@@ -1,3 +1,5 @@
+import math
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -71,20 +73,24 @@ def run_oscillator_synchronization_simulation():
     omega = np.array([1, 2])
     eta_1 = 2.5
     N_o = 1
+    t_1 = 0.0
+    t_2 = 20.0
 
     oscillator = oscillator_synchronization.Oscillator_Synchronization(
         r,
         epsilon,
         kappa,
         omega,
-        0.0,
-        10.0,
+        t_1,
+        t_2,
         mode_schedule_config={"eta_1": eta_1, "N_0": N_o},
     )
 
     solution = oscillator.solve()
-    print(solution(10.0))
-    ani = oscillator.animate_solution_3d(solution)
+
+    ani = oscillator.animate_solution_3d(
+        solution, frame_step=500, repeat_delay=math.inf
+    )
     plt.show()
 
 
@@ -133,5 +139,5 @@ def run_oscillator_synchronization_simulation_multi_graph():
 
 if __name__ == "__main__":
     # run_vehicle_trajectory_simulation()
-    # run_oscillator_synchronization_simulation()
-    run_oscillator_synchronization_simulation_multi_graph()
+    run_oscillator_synchronization_simulation()
+    # run_oscillator_synchronization_simulation_multi_graph()
