@@ -87,10 +87,9 @@ def run_oscillator_synchronization_simulation():
     )
 
     solution = oscillator.solve()
+    # ani = oscillator.animate_solution(solution)
 
-    ani = oscillator.animate_solution_3d(
-        solution, frame_step=500, repeat_delay=math.inf
-    )
+    ani = oscillator.animate_solution_3d(solution, frame_step=500)
     plt.show()
 
 
@@ -138,6 +137,6 @@ def run_oscillator_synchronization_simulation_multi_graph():
 
 
 if __name__ == "__main__":
-    # run_vehicle_trajectory_simulation()
-    run_oscillator_synchronization_simulation()
+    run_vehicle_trajectory_simulation()
+    # run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()

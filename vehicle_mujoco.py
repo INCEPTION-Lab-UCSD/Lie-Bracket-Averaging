@@ -1,0 +1,453 @@
+import argparse
+import math
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import mujoco
+import numpy as np
+
+import vehicle_trajectories
+
+MODE_COLORS = {
+    1: np.array([0.86, 0.22, 0.18, 1.0]),
+    2: np.array([0.95, 0.62, 0.12, 1.0]),
+    3: np.array([0.16, 0.55, 0.85, 1.0]),
+}
+
+MODE_LABELS = {
+    1: "Reversed Measurements",
+    2: "Blind to Measurements",
+    3: "Normal Measurements",
+}
+
+MODE_COLOR_NAMES = {
+    1: "red",
+    2: "orange",
+    3: "blue",
+}
+
+TARGET_CENTER_SIZE = 0.10
+
+
+@dataclass
+class VehiclePose:
+    position: np.ndarray
+    yaw: float
+    mode: int
+
+
+@dataclass
+class VehiclePlayback:
+    label: str
+    solution: object
+
+
+class MuJoCoVehicleVisualizer:
+    """
+    MuJoCo playback for existing hybrid vehicle trajectory solutions.
+
+    The paper's kinematics are still integrated by VehicleTrajectorySimulation.
+    MuJoCo is used here as a visualization scene: each playback frame overwrites
+    the free-joint poses of simple vehicle bodies with sampled hybrid states.
+    """
+
+    def __init__(
+        self,
+        playbacks,
+        x_p_goal,
+        target_radius=1.0,
+        trail_samples=140,
+        vehicle_length=0.7,
+        vehicle_width=0.35,
+    ):
+        self.playbacks = list(playbacks)
+        if not self.playbacks:
+            raise ValueError("playbacks must contain at least one VehiclePlayback")
+
+        self.x_p_goal = np.asarray(x_p_goal, dtype=float)
+        self.target_radius = float(target_radius)
+        self.trail_samples = int(trail_samples)
+        self.vehicle_length = float(vehicle_length)
+        self.vehicle_width = float(vehicle_width)
+
+        self._samples = [
+            self._sample_path(playback.solution, self.trail_samples)
+            for playback in self.playbacks
+        ]
+        self.model = mujoco.MjModel.from_xml_string(self._build_xml())
+        self.data = mujoco.MjData(self.model)
+
+        self._vehicle_qpos_addrs = [
+            self.model.joint(f"vehicle_{idx}_freejoint").qposadr[0]
+            for idx in range(len(self.playbacks))
+        ]
+        self._chassis_geom_ids = [
+            self.model.geom(f"chassis_{idx}").id for idx in range(len(self.playbacks))
+        ]
+        self._nose_geom_ids = [
+            self.model.geom(f"nose_{idx}").id for idx in range(len(self.playbacks))
+        ]
+
+        self._set_poses(self.t_start)
+
+    @property
+    def t_start(self):
+        return min(playback.solution.t[0] for playback in self.playbacks)
+
+    @property
+    def t_end(self):
+        return max(playback.solution.t[-1] for playback in self.playbacks)
+
+    def _build_xml(self):
+        all_xy = np.concatenate([samples[:2] for samples in self._samples], axis=1)
+        goal = self.x_p_goal
+
+        min_xy = np.minimum(np.min(all_xy, axis=1), goal) - 2.0
+        max_xy = np.maximum(np.max(all_xy, axis=1), goal) + 2.0
+        center = 0.5 * (min_xy + max_xy)
+        span = np.maximum(max_xy - min_xy, 4.0)
+        floor_size = max(span) / 2.0 + 1.0
+        camera_distance = max(span) * 1.15
+        camera_height = max(span) * 0.85 + 3.0
+
+        trail_geoms = "\n".join(
+            self._trail_geoms(playback_idx, samples)
+            for playback_idx, samples in enumerate(self._samples)
+        )
+        start_geoms = "\n".join(
+            self._start_geom(playback_idx, samples, self.target_radius / 4)
+            for playback_idx, samples in enumerate(self._samples)
+        )
+        vehicle_bodies = "\n".join(
+            self._vehicle_body(playback_idx)
+            for playback_idx in range(len(self.playbacks))
+        )
+
+        return f"""
+<mujoco model="vehicle_trajectory_visualization">
+  <compiler angle="radian"/>
+  <option timestep="0.01" gravity="0 0 -9.81"/>
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <map znear="0.01" zfar="100"/>
+  </visual>
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512"
+             rgb1="0.22 0.24 0.25" rgb2="0.28 0.30 0.31"/>
+    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.05"/>
+  </asset>
+  <worldbody>
+    <light name="key" pos="{center[0]:.6f} {center[1]:.6f} 8" dir="0 0 -1"/>
+    <camera name="overview"
+            pos="{center[0]:.6f} {center[1] - camera_distance:.6f} {camera_height:.6f}"
+            xyaxes="1 0 0 0 0.58 0.82"/>
+    <geom name="floor" type="plane" pos="{center[0]:.6f} {center[1]:.6f} 0"
+          size="{floor_size:.6f} {floor_size:.6f} 0.1" material="grid"/>
+    <geom name="target" type="cylinder"
+          pos="{goal[0]:.6f} {goal[1]:.6f} 0.012"
+          size="{self.target_radius:.6f} 0.012"
+          rgba="0.10 0.70 0.34 0.28"/>
+    <geom name="target_center" type="sphere"
+          pos="{goal[0]:.6f} {goal[1]:.6f} 0.10"
+          size="{TARGET_CENTER_SIZE:.6f}" rgba="0.06 0.40 0.20 0.95"/>
+{start_geoms}
+{trail_geoms}
+{vehicle_bodies}
+  </worldbody>
+</mujoco>
+"""
+
+    def _vehicle_body(self, playback_idx):
+        return f"""
+    <body name="vehicle_{playback_idx}" pos="0 0 0.12">
+      <freejoint name="vehicle_{playback_idx}_freejoint"/>
+      <geom name="chassis_{playback_idx}" type="box"
+            size="{self.vehicle_length / 2:.6f} {self.vehicle_width / 2:.6f} 0.08"
+            rgba="0.16 0.55 0.85 1"/>
+      <geom name="nose_{playback_idx}" type="box"
+            pos="{self.vehicle_length / 2 + 0.08:.6f} 0 0.04"
+            size="0.08 {self.vehicle_width / 3:.6f} 0.045"
+            rgba="0.05 0.15 0.20 1"/>
+      <geom name="wheel_fl_{playback_idx}" type="box" pos="0.22 0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
+      <geom name="wheel_fr_{playback_idx}" type="box" pos="0.22 -0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
+      <geom name="wheel_rl_{playback_idx}" type="box" pos="-0.22 0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
+      <geom name="wheel_rr_{playback_idx}" type="box" pos="-0.22 -0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
+    </body>
+"""
+
+    @staticmethod
+    def _sample_path(solution, samples):
+        times = np.linspace(solution.t[0], solution.t[-1], samples)
+        return solution(times)
+
+    def _trail_geoms(self, playback_idx, samples):
+        geoms = []
+        for sample_idx in range(samples.shape[1] - 1):
+            x0, y0 = samples[0, sample_idx], samples[1, sample_idx]
+            x1, y1 = samples[0, sample_idx + 1], samples[1, sample_idx + 1]
+            if np.hypot(x1 - x0, y1 - y0) < 1e-6:
+                continue
+            mode = int(round(samples[5, sample_idx]))
+            color = MODE_COLORS.get(mode, MODE_COLORS[3])
+            rgba = " ".join(f"{value:.3f}" for value in color[:3]) + " 0.82"
+            geoms.append(
+                f'    <geom name="trail_{playback_idx}_{sample_idx}" type="capsule" '
+                f'fromto="{x0:.6f} {y0:.6f} 0.055 {x1:.6f} {y1:.6f} 0.055" '
+                f'size="0.025" rgba="{rgba}"/>'
+            )
+        return "\n".join(geoms)
+
+    @staticmethod
+    def _start_geom(playback_idx, samples, start_marker_radius):
+        x0, y0 = samples[0, 0], samples[1, 0]
+        return (
+            f'    <geom name="start_{playback_idx}" type="cylinder" '
+            f'pos="{x0:.6f} {y0:.6f} 0.035" '
+            f'size="{start_marker_radius:.6f} 0.035" '
+            f'rgba="0 0 0 1"/>'
+        )
+
+    @staticmethod
+    def pose_at(solution, t):
+        clamped_t = float(np.clip(t, solution.t[0], solution.t[-1]))
+        state = solution(clamped_t)
+        direction = state[2:4]
+        yaw = math.atan2(direction[1], direction[0])
+        return VehiclePose(
+            position=np.array([state[0], state[1], 0.16], dtype=float),
+            yaw=yaw,
+            mode=int(round(state[5])),
+        )
+
+    def _set_poses(self, t):
+        for idx, playback in enumerate(self.playbacks):
+            pose = self.pose_at(playback.solution, t)
+            qpos_addr = self._vehicle_qpos_addrs[idx]
+            qpos = self.data.qpos[qpos_addr : qpos_addr + 7]
+            qpos[:3] = pose.position
+            qpos[3:] = self._yaw_quaternion(pose.yaw)
+
+            color = MODE_COLORS.get(pose.mode, MODE_COLORS[3])
+            self.model.geom_rgba[self._chassis_geom_ids[idx]] = color
+            self.model.geom_rgba[self._nose_geom_ids[idx]] = np.array(
+                [
+                    max(color[0] - 0.08, 0.0),
+                    max(color[1] - 0.08, 0.0),
+                    max(color[2] - 0.08, 0.0),
+                    1.0,
+                ]
+            )
+        mujoco.mj_forward(self.model, self.data)
+
+    def run(self, fps=60.0, realtime_factor=1.0):
+        import mujoco.viewer
+
+        playback_t = self.t_start
+        dt = 1.0 / fps
+
+        with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
+            viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+            viewer.cam.fixedcamid = self.model.camera("overview").id
+
+            while viewer.is_running() and playback_t <= self.t_end:
+                loop_start = time.time()
+                with viewer.lock():
+                    self._set_poses(playback_t)
+                viewer.set_texts(self._viewer_texts(playback_t))
+                viewer.sync()
+
+                playback_t += dt * realtime_factor
+                sleep_time = dt - (time.time() - loop_start)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
+    def _viewer_texts(self, t):
+        mode_left = "Mode 1\nMode 2\nMode 3"
+        mode_right = "\n".join(self._mode_label_text(mode) for mode in (1, 2, 3))
+        playback_left = "\n".join(playback.label for playback in self.playbacks)
+        playback_right = []
+        for playback in self.playbacks:
+            playback_right.append(self._playback_status_text(playback, t))
+
+        return [
+            (
+                mujoco.mjtFontScale.mjFONTSCALE_150,
+                mujoco.mjtGridPos.mjGRID_TOPLEFT,
+                mode_left,
+                mode_right,
+            ),
+            (
+                mujoco.mjtFontScale.mjFONTSCALE_150,
+                mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
+                playback_left,
+                "\n".join(playback_right),
+            ),
+        ]
+
+    def render_snapshot(self, output_path, t=None, width=1280, height=720):
+        output_path = Path(output_path)
+        snapshot_t = self.t_end if t is None else t
+        self._set_poses(snapshot_t)
+
+        renderer = mujoco.Renderer(self.model, height=height, width=width)
+        renderer.update_scene(self.data, camera="overview")
+        image = renderer.render()
+        renderer.close()
+
+        self._save_snapshot_with_text(output_path, image, snapshot_t, width, height)
+        return output_path
+
+    def _save_snapshot_with_text(self, output_path, image, t, width, height):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        fig = Figure(figsize=(width / 100, height / 100), dpi=100)
+        FigureCanvasAgg(fig)
+        ax = fig.subplots()
+        ax.imshow(image)
+        ax.axis("off")
+        ax.text(
+            18,
+            24,
+            self._mode_legend_text(),
+            va="top",
+            ha="left",
+            fontsize=12,
+            color="white",
+            bbox={"facecolor": "black", "alpha": 0.65, "pad": 8, "edgecolor": "white"},
+        )
+        ax.text(
+            18,
+            height - 24,
+            self._active_modes_text(t),
+            va="bottom",
+            ha="left",
+            fontsize=12,
+            color="white",
+            bbox={"facecolor": "black", "alpha": 0.65, "pad": 8, "edgecolor": "white"},
+        )
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        fig.savefig(output_path, dpi=100)
+
+    @staticmethod
+    def _mode_legend_text():
+        return "\n".join(
+            f"Mode {mode}: {MuJoCoVehicleVisualizer._mode_label_text(mode)}"
+            for mode in (1, 2, 3)
+        )
+
+    @staticmethod
+    def _mode_label_text(mode):
+        return f"{MODE_LABELS[mode]} ({MODE_COLOR_NAMES[mode]})"
+
+    def _active_modes_text(self, t):
+        return "\n".join(
+            f"{playback.label}: {self._playback_status_text(playback, t)}"
+            for playback in self.playbacks
+        )
+
+    def _playback_status_text(self, playback, t):
+        mode = self.pose_at(playback.solution, t).mode
+        elapsed = self._elapsed_time(playback, t)
+        return f"t = {elapsed:5.2f} s | Mode {mode}: {MODE_LABELS[mode]}"
+
+    @staticmethod
+    def _elapsed_time(playback, t):
+        return float(
+            np.clip(t, playback.solution.t[0], playback.solution.t[-1])
+            - playback.solution.t[0]
+        )
+
+    @staticmethod
+    def _yaw_quaternion(yaw):
+        half_yaw = 0.5 * yaw
+        return np.array([math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)])
+
+
+def build_default_solutions():
+    epsilon = 1 / np.sqrt(10 * np.pi)
+    mode_schedule = [
+        (0.0, 2),
+        (1.0, 3),
+        (4.5, 1),
+        (5.0, 3),
+        (8.0, 1),
+        (8.5, 2),
+        (10.0, 1),
+        (10.5, 3),
+        (14.0, 1),
+        (14.5, 2),
+    ]
+    mode_schedule_diverge = [
+        (0.0, 2),
+        (1.0, 1),
+        (6.0, 3),
+        (8.0, 2),
+        (12.0, 3),
+        (13.5, 2),
+        (14.5, 1),
+    ]
+    x_0_p_converge = np.array([-4, 4])
+    x_0_p_diverge = np.array([-4, -4])
+    x_p_goal = np.array([0.0, 0.0])
+
+    converge_simulation = vehicle_trajectories.VehicleTrajectorySimulation(
+        x_0_p_converge,
+        x_p_goal,
+        epsilon,
+        0.0,
+        15.0,
+        mode_schedule=mode_schedule,
+    )
+    diverge_simulation = vehicle_trajectories.VehicleTrajectorySimulation(
+        x_0_p_diverge,
+        x_p_goal,
+        epsilon,
+        0.0,
+        15.0,
+        mode_schedule=mode_schedule_diverge,
+    )
+
+    return x_p_goal, [
+        VehiclePlayback("Converging trajectory", converge_simulation.solve()),
+        VehiclePlayback("Diverging trajectory", diverge_simulation.solve()),
+    ]
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Visualize the two vehicle trajectories in MuJoCo."
+    )
+    parser.add_argument(
+        "--snapshot",
+        type=Path,
+        help="Render one PNG instead of opening the interactive MuJoCo viewer.",
+    )
+    parser.add_argument("--fps", type=float, default=60.0)
+    parser.add_argument("--realtime-factor", type=float, default=1.0)
+    args = parser.parse_args()
+
+    x_p_goal, playbacks = build_default_solutions()
+    visualizer = MuJoCoVehicleVisualizer(playbacks, x_p_goal)
+
+    if args.snapshot is not None:
+        output_path = visualizer.render_snapshot(args.snapshot)
+        print(f"wrote {output_path}")
+    else:
+        try:
+            visualizer.run(fps=args.fps, realtime_factor=args.realtime_factor)
+        except RuntimeError as exc:
+            if "requires that the Python script be run under `mjpython`" in str(exc):
+                raise SystemExit(
+                    "The interactive MuJoCo viewer must be launched with mjpython on macOS.\n"
+                    "From the project root, run:\n\n"
+                    "  ./run_vehicle_mujoco.sh\n\n"
+                    "Pass viewer options through the wrapper, for example:\n\n"
+                    "  ./run_vehicle_mujoco.sh --fps 60 --realtime-factor 2"
+                ) from None
+            raise
+
+
+if __name__ == "__main__":
+    main()
