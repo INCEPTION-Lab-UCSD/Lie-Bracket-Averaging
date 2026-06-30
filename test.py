@@ -8,4 +8,7 @@ def generate_oscillator():
     return np.array([np.cos(angle), np.sin(angle)])
 
 
-print([[j for j in range(4) if j != i] for i in range(4)])
+E = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+x = np.array([5, 6, 9])
+
+print(np.cross(E, x))

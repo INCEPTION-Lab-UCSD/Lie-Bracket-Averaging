@@ -3,6 +3,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 
+import global_es_sphere
 import oscillator_synchronization
 import vehicle_trajectories
 
@@ -136,7 +137,21 @@ def run_oscillator_synchronization_simulation_multi_graph():
     plt.show()
 
 
+def run_global_es_sphere():
+    alpha = 1
+    delta = 1 / 5
+    epsilon = 1 / np.sqrt(8 * np.pi)
+    omega = np.array([2, 3, 1])
+    kappa = 4
+    x0 = np.array([-0.11, 0.11, -0.98])
+    # sphere_simulation = global_es_sphere.Global_ES_Sphere(
+    #     x0, delta, omega, alpha, kappa, epsilon
+    # )
+    # print(sphere_simulation)
+
+
 if __name__ == "__main__":
-    run_vehicle_trajectory_simulation()
-    # run_oscillator_synchronization_simulation()
+    # run_vehicle_trajectory_simulation()
+    run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()
+    # run_global_es_sphere()
