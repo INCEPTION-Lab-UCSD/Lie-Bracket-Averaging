@@ -144,14 +144,18 @@ def run_global_es_sphere():
     omega = np.array([2, 3, 1])
     kappa = 4
     x0 = np.array([-0.11, 0.11, -0.98])
-    # sphere_simulation = global_es_sphere.Global_ES_Sphere(
-    #     x0, delta, omega, alpha, kappa, epsilon
-    # )
-    # print(sphere_simulation)
+    x0 = np.append(x0, [2, 0.0])
+    t_1 = 0.0
+    t_2 = 12.0
+    sphere_simulation = global_es_sphere.Global_ES_Sphere(
+        x0, delta, omega, alpha, kappa, epsilon, t_1, t_2
+    )
+    solution = sphere_simulation.solve(x0, t_1)
+    print(solution(t_2))
 
 
 if __name__ == "__main__":
     # run_vehicle_trajectory_simulation()
-    run_oscillator_synchronization_simulation()
+    # run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()
-    # run_global_es_sphere()
+    run_global_es_sphere()
