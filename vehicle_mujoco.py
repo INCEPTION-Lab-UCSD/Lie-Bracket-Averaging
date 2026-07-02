@@ -129,13 +129,17 @@ class MuJoCoVehicleVisualizer:
   <compiler angle="radian"/>
   <option timestep="0.01" gravity="0 0 -9.81"/>
   <visual>
+    <headlight ambient="0.70 0.70 0.70" diffuse="0.55 0.55 0.55" specular="0.12 0.12 0.12"/>
+    <rgba haze="1 1 1 1"/>
     <global offwidth="1280" offheight="720"/>
     <map znear="0.01" zfar="100"/>
   </visual>
   <asset>
+    <texture name="skybox" type="skybox" builtin="flat" width="32" height="32"
+             rgb1="1 1 1" rgb2="1 1 1"/>
     <texture name="grid" type="2d" builtin="checker" width="512" height="512"
-             rgb1="0.22 0.24 0.25" rgb2="0.28 0.30 0.31"/>
-    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.05"/>
+             rgb1="0.96 0.96 0.96" rgb2="0.86 0.88 0.89"/>
+    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.12"/>
   </asset>
   <worldbody>
     <light name="key" pos="{center[0]:.6f} {center[1]:.6f} 8" dir="0 0 -1"/>
@@ -298,13 +302,88 @@ class MuJoCoVehicleVisualizer:
         self._save_snapshot_with_text(output_path, image, snapshot_t, width, height)
         return output_path
 
+    def render_animation(
+        self,
+        output_path,
+        fps=24.0,
+        duration=10.0,
+        width=1280,
+        height=720,
+    ):
+        import matplotlib
+        import matplotlib.animation as animation
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        if not animation.writers.is_available("ffmpeg"):
+            import imageio_ffmpeg
+
+            matplotlib.rcParams["animation.ffmpeg_path"] = (
+                imageio_ffmpeg.get_ffmpeg_exe()
+            )
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        frame_count = max(2, int(round(float(fps) * float(duration))))
+        times = np.linspace(self.t_start, self.t_end, frame_count)
+
+        renderer = mujoco.Renderer(self.model, height=height, width=width)
+        fig = Figure(figsize=(width / 100, height / 100), dpi=100, facecolor="white")
+        FigureCanvasAgg(fig)
+        ax = fig.subplots()
+        ax.set_facecolor("white")
+        image_artist = ax.imshow(np.full((height, width, 3), 255, dtype=np.uint8))
+        ax.axis("off")
+        ax.text(
+            18,
+            24,
+            self._mode_legend_text(),
+            va="top",
+            ha="left",
+            fontsize=12,
+            color="black",
+            bbox=self._text_box_style(),
+        )
+        active_text = ax.text(
+            18,
+            height - 24,
+            "",
+            va="bottom",
+            ha="left",
+            fontsize=12,
+            color="black",
+            bbox=self._text_box_style(),
+        )
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+        writer = animation.FFMpegWriter(
+            fps=fps,
+            codec="libx264",
+            bitrate=3200,
+            extra_args=["-pix_fmt", "yuv420p"],
+        )
+        try:
+            with writer.saving(fig, str(output_path), dpi=100):
+                for frame_t in times:
+                    self._set_poses(frame_t)
+                    renderer.update_scene(self.data, camera="overview")
+                    image_artist.set_data(renderer.render())
+                    active_text.set_text(self._active_modes_text(frame_t))
+                    writer.grab_frame()
+        finally:
+            renderer.close()
+            fig.clear()
+
+        return output_path
+
     def _save_snapshot_with_text(self, output_path, image, t, width, height):
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
 
-        fig = Figure(figsize=(width / 100, height / 100), dpi=100)
+        fig = Figure(figsize=(width / 100, height / 100), dpi=100, facecolor="white")
         FigureCanvasAgg(fig)
         ax = fig.subplots()
+        ax.set_facecolor("white")
         ax.imshow(image)
         ax.axis("off")
         ax.text(
@@ -314,8 +393,8 @@ class MuJoCoVehicleVisualizer:
             va="top",
             ha="left",
             fontsize=12,
-            color="white",
-            bbox={"facecolor": "black", "alpha": 0.65, "pad": 8, "edgecolor": "white"},
+            color="black",
+            bbox=self._text_box_style(),
         )
         ax.text(
             18,
@@ -324,11 +403,21 @@ class MuJoCoVehicleVisualizer:
             va="bottom",
             ha="left",
             fontsize=12,
-            color="white",
-            bbox={"facecolor": "black", "alpha": 0.65, "pad": 8, "edgecolor": "white"},
+            color="black",
+            bbox=self._text_box_style(),
         )
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         fig.savefig(output_path, dpi=100)
+
+    @staticmethod
+    def _text_box_style():
+        return {
+            "facecolor": "white",
+            "alpha": 0.82,
+            "pad": 8,
+            "edgecolor": "0.35",
+            "linewidth": 0.9,
+        }
 
     @staticmethod
     def _mode_legend_text():
@@ -424,15 +513,39 @@ def main():
         type=Path,
         help="Render one PNG instead of opening the interactive MuJoCo viewer.",
     )
+    parser.add_argument(
+        "--video",
+        type=Path,
+        help="Render an MP4 instead of opening the interactive MuJoCo viewer.",
+    )
     parser.add_argument("--fps", type=float, default=60.0)
     parser.add_argument("--realtime-factor", type=float, default=1.0)
+    parser.add_argument("--video-fps", type=float, default=24.0)
+    parser.add_argument("--video-duration", type=float, default=10.0)
+    parser.add_argument("--width", type=int, default=1280)
+    parser.add_argument("--height", type=int, default=720)
     args = parser.parse_args()
+    if args.snapshot is not None and args.video is not None:
+        parser.error("use either --snapshot or --video, not both")
 
     x_p_goal, playbacks = build_default_solutions()
     visualizer = MuJoCoVehicleVisualizer(playbacks, x_p_goal)
 
-    if args.snapshot is not None:
-        output_path = visualizer.render_snapshot(args.snapshot)
+    if args.video is not None:
+        output_path = visualizer.render_animation(
+            args.video,
+            fps=args.video_fps,
+            duration=args.video_duration,
+            width=args.width,
+            height=args.height,
+        )
+        print(f"wrote {output_path}")
+    elif args.snapshot is not None:
+        output_path = visualizer.render_snapshot(
+            args.snapshot,
+            width=args.width,
+            height=args.height,
+        )
         print(f"wrote {output_path}")
     else:
         try:

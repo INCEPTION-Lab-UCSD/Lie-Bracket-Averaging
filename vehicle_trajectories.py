@@ -3,6 +3,7 @@ import math
 import matplotlib.animation as animation
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+import matplotlib.transforms as transforms
 import numpy as np
 import scipy
 
@@ -284,6 +285,85 @@ class VehicleTrajectorySimulation:
 
         return schedule
 
+    def _trajectory_headings(self, x1, x2):
+        if len(x1) < 2:
+            return np.zeros_like(x1)
+
+        dx = np.gradient(x1)
+        dy = np.gradient(x2)
+        speed = np.hypot(dx, dy)
+        headings = np.arctan2(dy, dx)
+
+        for i, speed_i in enumerate(speed):
+            if speed_i > 1e-9 and np.isfinite(headings[i]):
+                continue
+            headings[i] = headings[i - 1] if i > 0 else 0.0
+
+        return headings
+
+    def _add_cartoon_vehicle(self, ax, color, zorder=7):
+        length = 0.82
+        width = 0.44
+        wheel_radius = 0.07
+
+        body = patches.FancyBboxPatch(
+            (-length / 2, -width / 2),
+            length,
+            width,
+            boxstyle="round,pad=0.02,rounding_size=0.08",
+            facecolor=color,
+            edgecolor="black",
+            linewidth=1.2,
+            zorder=zorder,
+        )
+        cabin = patches.Polygon(
+            [
+                (-0.14, -0.16),
+                (0.18, -0.15),
+                (0.31, 0.0),
+                (0.18, 0.15),
+                (-0.14, 0.16),
+            ],
+            closed=True,
+            facecolor="white",
+            edgecolor="black",
+            linewidth=0.9,
+            alpha=0.9,
+            zorder=zorder + 1,
+        )
+        hood = patches.Polygon(
+            [(length / 2, 0.0), (0.27, -0.13), (0.27, 0.13)],
+            closed=True,
+            facecolor="#f7d65a",
+            edgecolor="black",
+            linewidth=0.8,
+            zorder=zorder + 2,
+        )
+        wheels = [
+            patches.Circle(
+                (x, y),
+                wheel_radius,
+                facecolor="black",
+                edgecolor="white",
+                linewidth=0.5,
+                zorder=zorder + 2,
+            )
+            for x in (-0.23, 0.23)
+            for y in (-width / 2, width / 2)
+        ]
+
+        artists = [body, *wheels, cabin, hood]
+        for artist in artists:
+            ax.add_patch(artist)
+
+        self._set_cartoon_vehicle_pose(ax, artists, 0.0, 0.0, 0.0)
+        return artists
+
+    def _set_cartoon_vehicle_pose(self, ax, artists, x, y, heading):
+        vehicle_transform = transforms.Affine2D().rotate(heading).translate(x, y)
+        for artist in artists:
+            artist.set_transform(vehicle_transform + ax.transData)
+
     def animate_solution(
         self,
         HybridSolutions,
@@ -319,11 +399,24 @@ class VehicleTrajectorySimulation:
                 {
                     "x1": xy[0],
                     "x2": xy[1],
+                    "heading": self._trajectory_headings(xy[0], xy[1]),
                     "z1": np.round(xy[5]).astype(
                         int
                     ),  # z1 is piecewise constant; round avoids float drift
                 }
             )
+
+        vehicle_artists = [
+            self._add_cartoon_vehicle(
+                ax_trajectory,
+                trajectory_line.get_color(),
+                zorder=7 + i,
+            )
+            for i, trajectory_line in enumerate(trajectory_lines)
+        ]
+        vehicle_artist_list = [
+            artist for vehicle in vehicle_artists for artist in vehicle
+        ]
 
         # Frame indices: n evenly spaced steps through all_times, always ending at last point
         frame_indices = np.linspace(0, n_points - 1, frame_step, dtype=int)
@@ -337,7 +430,14 @@ class VehicleTrajectorySimulation:
                 trajectory_lines[i].set_data(data["x1"][:idx], data["x2"][:idx])
                 # Mode plot: z1 on x-axis, t on y-axis
                 mode_lines[i].set_data(data["z1"][:idx], all_times[:idx])
-            return (*mode_lines, *trajectory_lines)
+                self._set_cartoon_vehicle_pose(
+                    ax_trajectory,
+                    vehicle_artists[i],
+                    data["x1"][idx - 1],
+                    data["x2"][idx - 1],
+                    data["heading"][idx - 1],
+                )
+            return (*mode_lines, *trajectory_lines, *vehicle_artist_list)
 
         ani = animation.FuncAnimation(
             fig,
