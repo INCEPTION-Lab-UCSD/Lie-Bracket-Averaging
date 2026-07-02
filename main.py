@@ -145,13 +145,17 @@ def run_global_es_sphere():
     kappa = 4
     x0 = np.array([-0.11, 0.11, -0.98])
     x0 = np.append(x0, [2, 0.0])
+    x_target = np.array([0, 0, 1], dtype=float)
     t_1 = 0.0
-    t_2 = 12.0
+    t_2 = 15.0
     sphere_simulation = global_es_sphere.Global_ES_Sphere(
         x0, delta, omega, alpha, kappa, epsilon, t_1, t_2
     )
     solution = sphere_simulation.solve(x0, t_1)
-    print(solution(t_2))
+    # sphere_simulation.plot_sphere_simulation(solution, x_target)
+    ani = sphere_simulation.animate_solution(solution, x_target)
+    plt.show()
+    return ani
 
 
 if __name__ == "__main__":
