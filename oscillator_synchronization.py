@@ -830,9 +830,7 @@ class Oscillator_Synchronization:
         )
 
         axis_limit = major_radius + minor_radius
-        ax_torus.set_xlim(-axis_limit, axis_limit)
-        ax_torus.set_ylim(-axis_limit, axis_limit)
-        ax_torus.set_zlim(-minor_radius, minor_radius)
+
         ax_torus.set_box_aspect((1, 1, minor_radius / axis_limit))
         ax_torus.set_xlabel(r"$x$")
         ax_torus.set_ylabel(r"$y$")
@@ -843,7 +841,7 @@ class Oscillator_Synchronization:
         mappable = cm.ScalarMappable(norm=norm, cmap=cm.gray)
         mappable.set_array(cost)
         colorbar = fig.colorbar(mappable, ax=ax_torus, fraction=0.046, pad=0.04)
-        colorbar.set_ticks(np.linspace(norm.vmin, norm.vmax, 5))
+
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
 
         fig.tight_layout()
@@ -966,7 +964,7 @@ class Oscillator_Synchronization:
         mappable = cm.ScalarMappable(norm=norm, cmap=cm.gray)
         mappable.set_array(cost)
         colorbar = fig.colorbar(mappable, ax=ax_torus, fraction=0.046, pad=0.04)
-        colorbar.set_ticks(np.linspace(norm.vmin, norm.vmax, 5))
+
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
         fig.tight_layout()
 
