@@ -6,8 +6,16 @@ import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
 import numpy as np
 import scipy
+from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 
 import hybrid_solution
+
+MODE_STYLES = {
+    1: {"color": "#d62728", "label": "Reversed Distance Measurements"},
+    2: {"color": "#ff7f0e", "label": "No Distance Measurements"},
+    3: {"color": "#1f77b4", "label": "Normal Distance Measurements"},
+}
 
 
 class VehicleTrajectorySimulation:
@@ -143,27 +151,22 @@ class VehicleTrajectorySimulation:
 
         return np.cos(tau_2 + (z_1 - 2) * J)
 
-    def plot_trajectory(self, HybridSolutions, target_circle_size=1.0, padding=1.0):
-        fig, axes = plt.subplots(
-            1,
-            2,
-            figsize=(7, 7),
-            gridspec_kw={"width_ratios": [1, 3]},  # ← mode narrow on left
-        )
-        ax_mode, ax_trajectory = axes  # ← mode first now
+    @staticmethod
+    def _path_segments(x_1, x_2):
+        points = np.column_stack((x_1, x_2))
+        if len(points) < 2:
+            return np.empty((0, 2, 2))
+        return np.stack((points[:-1], points[1:]), axis=1)
+
+    @staticmethod
+    def _segment_colors(z_1):
+        return [MODE_STYLES[int(mode)]["color"] for mode in z_1[:-1]]
+
+    def _trajectory_bounds(self, HybridSolutions, padding):
         x_1_max = -math.inf
         x_1_min = math.inf
         x_2_max = -math.inf
         x_2_min = math.inf
-        target_circle = patches.Circle(
-            self.x_p_goal,
-            radius=target_circle_size,
-            facecolor="white",
-            edgecolor="black",
-            linewidth=1.5,
-            zorder=2,
-        )
-        ax_trajectory.add_patch(target_circle)
         for solution in HybridSolutions:
             x_1 = solution.y[0]
             x_2 = solution.y[1]
@@ -171,28 +174,38 @@ class VehicleTrajectorySimulation:
             x_1_min = min(x_1_min, np.min(x_1))
             x_2_max = max(x_2_max, np.max(x_2))
             x_2_min = min(x_2_min, np.min(x_2))
+        return (
+            x_1_min - padding,
+            x_1_max + padding,
+            x_2_min - padding,
+            x_2_max + padding,
+        )
+
+    def _style_trajectory_axes(
+        self, fig, ax_trajectory, HybridSolutions, target_circle_size, padding
+    ):
+        x_1_min, x_1_max, x_2_min, x_2_max = self._trajectory_bounds(
+            HybridSolutions, padding
+        )
+        target_circle = patches.Circle(
+            self.x_p_goal,
+            radius=target_circle_size,
+            facecolor="lime",
+            edgecolor="black",
+            linewidth=1.5,
+            zorder=2,
+            label="Goal",
+        )
+        ax_trajectory.add_patch(target_circle)
+        for solution in HybridSolutions:
+            x_1 = solution.y[0]
+            x_2 = solution.y[1]
             start_patch = patches.Circle(
                 (x_1[0], x_2[0]), radius=0.35, color="black", zorder=5
             )
             ax_trajectory.add_patch(start_patch)
-            t_end = solution.t[-1]
-            color, label = (
-                ("blue", "converging")
-                if np.linalg.norm(solution(t_end)[:2] - self.x_p_goal)
-                <= target_circle_size
-                else ("red", "diverging")
-            )
-            ax_trajectory.plot(x_1, x_2, color=color, zorder=4, label=label)
-            t_data = []
-            z1_data = []
-            for seg in solution.segments:
-                z1_val = int(round(seg.y[5, 0]))
-                t_data.extend([seg.t[0], seg.t[-1]])
-                z1_data.extend([z1_val, z1_val])
-            ax_mode.plot(z1_data, t_data, color=color, linewidth=2)
-        ax_trajectory.legend(loc="upper right")
-        x_1 = np.linspace(x_1_min - padding, x_1_max + padding, 1000)
-        x_2 = np.linspace(x_2_min - padding, x_2_max + padding, 1000)
+        x_1 = np.linspace(x_1_min, x_1_max, 1000)
+        x_2 = np.linspace(x_2_min, x_2_max, 1000)
         X1, X2 = np.meshgrid(x_1, x_2)
         J_grid = self.J_x([X1, X2])
         contour_plot = ax_trajectory.contourf(
@@ -203,21 +216,80 @@ class VehicleTrajectorySimulation:
             levels=15,
             zorder=1,
         )
-        cbar = fig.colorbar(contour_plot, ax=ax_trajectory)
+        cbar = fig.colorbar(contour_plot, ax=ax_trajectory, fraction=0.046, pad=0.04)
         cbar.set_label(r"$J(x_p)$", rotation=0, labelpad=15)
         ax_trajectory.set_xlabel(r"$x_1$", fontsize=13)
         ax_trajectory.set_ylabel(r"$x_2$", fontsize=13)
-        ax_trajectory.set_xlim(x_1_min - padding, x_1_max + padding)
-        ax_trajectory.set_ylim(x_2_min - padding, x_2_max + padding)
-        t_max = HybridSolutions[0].t[-1]
-        tick_mark_length = t_max // 3
-        tick_marks = [tick_mark_length * i for i in range(4)]
-        ax_mode.set_xlabel(r"$z_1(t)$")
-        ax_mode.set_ylabel(r"$t$")
-        ax_mode.set_xticks([1, 2, 3])
-        ax_mode.set_yticks(tick_marks)
-        plt.tight_layout()
-        return fig, axes
+        ax_trajectory.set_xlim(x_1_min, x_1_max)
+        ax_trajectory.set_ylim(x_2_min, x_2_max)
+        ax_trajectory.set_aspect("equal", adjustable="box")
+
+        legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                color=MODE_STYLES[mode]["color"],
+                lw=5,
+                label=MODE_STYLES[mode]["label"],
+            )
+            for mode in (3, 1, 2)
+        ]
+
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="lime",  # no line
+                markerfacecolor="lime",
+                markeredgecolor="black",
+                markersize=13,
+                linestyle="None",
+                label="Goal",
+            )
+        )
+
+        legend_handles.append(
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="black",
+                markerfacecolor="black",
+                markersize=13,
+                linestyle="None",
+                label="Start Position",
+            )
+        )
+        ax_trajectory.legend(
+            handles=legend_handles,
+            loc="upper left",
+            framealpha=0.9,
+            fontsize=12,
+            handlelength=2.4,
+            borderpad=0.4,
+            labelspacing=0.3,
+        )
+
+    def plot_trajectory(self, HybridSolutions, target_circle_size=1.0, padding=1.0):
+        fig, ax_trajectory = plt.subplots(figsize=(9.5, 7.0), layout="constrained")
+        self._style_trajectory_axes(
+            fig, ax_trajectory, HybridSolutions, target_circle_size, padding
+        )
+        for solution in HybridSolutions:
+            x_1 = solution.y[0]
+            x_2 = solution.y[1]
+            z_1 = np.round(solution.y[5]).astype(int)
+            line_collection = LineCollection(
+                self._path_segments(x_1, x_2),
+                colors=self._segment_colors(z_1),
+                linewidths=2.4,
+                zorder=4,
+            )
+            line_collection.set_capstyle("round")
+            line_collection.set_joinstyle("round")
+            ax_trajectory.add_collection(line_collection)
+        return fig, ax_trajectory
 
     def generate_random_mode_schedule(
         self,
@@ -302,57 +374,57 @@ class VehicleTrajectorySimulation:
         return headings
 
     def _add_cartoon_vehicle(self, ax, color, zorder=7):
-        length = 0.82
-        width = 0.44
-        wheel_radius = 0.07
+        rotor_radius = 0.12
+        arm_length = 0.4
 
         body = patches.FancyBboxPatch(
-            (-length / 2, -width / 2),
-            length,
-            width,
+            (-0.16, -0.11),
+            0.32,
+            0.22,
             boxstyle="round,pad=0.02,rounding_size=0.08",
             facecolor=color,
             edgecolor="black",
-            linewidth=1.2,
-            zorder=zorder,
+            linewidth=1.0,
+            zorder=zorder + 2,
         )
-        cabin = patches.Polygon(
-            [
-                (-0.14, -0.16),
-                (0.18, -0.15),
-                (0.31, 0.0),
-                (0.18, 0.15),
-                (-0.14, 0.16),
-            ],
-            closed=True,
-            facecolor="white",
-            edgecolor="black",
-            linewidth=0.9,
-            alpha=0.9,
-            zorder=zorder + 1,
-        )
-        hood = patches.Polygon(
-            [(length / 2, 0.0), (0.27, -0.13), (0.27, 0.13)],
+        rotors = [
+            patches.Circle(
+                (x, y),
+                rotor_radius,
+                facecolor="white",
+                edgecolor="black",
+                linewidth=0.8,
+                alpha=0.95,
+                zorder=zorder + 1,
+            )
+            for x, y in (
+                (-arm_length / 2, -arm_length / 2),
+                (-arm_length / 2, arm_length / 2),
+                (arm_length / 2, -arm_length / 2),
+                (arm_length / 2, arm_length / 2),
+            )
+        ]
+        rotor_hubs = [
+            patches.Circle(
+                rotor.center,
+                rotor_radius * 0.33,
+                facecolor=color,
+                edgecolor="black",
+                linewidth=0.6,
+                zorder=zorder + 3,
+            )
+            for rotor in rotors
+        ]
+        nose = patches.Polygon(
+            [(0.32, 0.0), (0.12, -0.08), (0.12, 0.08)],
             closed=True,
             facecolor="#f7d65a",
             edgecolor="black",
             linewidth=0.8,
-            zorder=zorder + 2,
+            zorder=zorder + 4,
         )
-        wheels = [
-            patches.Circle(
-                (x, y),
-                wheel_radius,
-                facecolor="black",
-                edgecolor="white",
-                linewidth=0.5,
-                zorder=zorder + 2,
-            )
-            for x in (-0.23, 0.23)
-            for y in (-width / 2, width / 2)
-        ]
 
-        artists = [body, *wheels, cabin, hood]
+        artists = [*rotors, body, *rotor_hubs, nose]
         for artist in artists:
             ax.add_patch(artist)
 
@@ -372,20 +444,25 @@ class VehicleTrajectorySimulation:
         repeat_delay=1200,
         target_circle_size=1.0,
         padding=1.0,
+        save_path=None,
+        fps=25,
     ):
         if frame_step <= 0:
             raise ValueError("frame_step must be positive")
 
-        fig, axes = self.plot_trajectory(HybridSolutions, target_circle_size, padding)
-        ax_mode, ax_trajectory = axes
+        fig, ax_trajectory = plt.subplots(figsize=(9.5, 7.0), layout="constrained")
+        self._style_trajectory_axes(
+            fig, ax_trajectory, HybridSolutions, target_circle_size, padding
+        )
 
-        # plot_trajectory drew full static lines; grab and clear them for animation
-        mode_lines = list(ax_mode.lines)  # one per solution
-        trajectory_lines = list(ax_trajectory.lines)  # one per solution
-        for line in [*mode_lines, *trajectory_lines]:
-            line.set_data([], [])
+        trajectory_lines = []
+        for _ in HybridSolutions:
+            line_collection = LineCollection([], linewidths=2.7, zorder=4)
+            line_collection.set_capstyle("round")
+            line_collection.set_joinstyle("round")
+            ax_trajectory.add_collection(line_collection)
+            trajectory_lines.append(line_collection)
 
-        # --- Precompute trajectories at a uniform time grid ---
         t_min = min(sol.t[0] for sol in HybridSolutions)
         t_max = max(sol.t[-1] for sol in HybridSolutions)
         n_points = max(len(sol.t) for sol in HybridSolutions)
@@ -409,16 +486,15 @@ class VehicleTrajectorySimulation:
         vehicle_artists = [
             self._add_cartoon_vehicle(
                 ax_trajectory,
-                trajectory_line.get_color(),
+                "gray",
                 zorder=7 + i,
             )
-            for i, trajectory_line in enumerate(trajectory_lines)
+            for i, _ in enumerate(trajectory_lines)
         ]
         vehicle_artist_list = [
             artist for vehicle in vehicle_artists for artist in vehicle
         ]
 
-        # Frame indices: n evenly spaced steps through all_times, always ending at last point
         frame_indices = np.linspace(0, n_points - 1, frame_step, dtype=int)
         if frame_indices[-1] != n_points - 1:
             frame_indices = np.append(frame_indices, n_points - 1)
@@ -426,10 +502,10 @@ class VehicleTrajectorySimulation:
         def update(frame_idx):
             idx = frame_indices[frame_idx] + 1
             for i, data in enumerate(precomputed):
-                # Trajectory: x1 on x-axis, x2 on y-axis
-                trajectory_lines[i].set_data(data["x1"][:idx], data["x2"][:idx])
-                # Mode plot: z1 on x-axis, t on y-axis
-                mode_lines[i].set_data(data["z1"][:idx], all_times[:idx])
+                trajectory_lines[i].set_segments(
+                    self._path_segments(data["x1"][:idx], data["x2"][:idx])
+                )
+                trajectory_lines[i].set_color(self._segment_colors(data["z1"][:idx]))
                 self._set_cartoon_vehicle_pose(
                     ax_trajectory,
                     vehicle_artists[i],
@@ -437,7 +513,7 @@ class VehicleTrajectorySimulation:
                     data["x2"][idx - 1],
                     data["heading"][idx - 1],
                 )
-            return (*mode_lines, *trajectory_lines, *vehicle_artist_list)
+            return (*trajectory_lines, *vehicle_artist_list)
 
         ani = animation.FuncAnimation(
             fig,
@@ -449,6 +525,13 @@ class VehicleTrajectorySimulation:
             blit=False,
         )
         update(0)
+        if save_path is not None:
+            if not animation.writers.is_available("ffmpeg"):
+                import imageio_ffmpeg
+
+                plt.rcParams["animation.ffmpeg_path"] = imageio_ffmpeg.get_ffmpeg_exe()
+            writer = animation.FFMpegWriter(fps=fps)
+            ani.save(save_path, writer=writer, dpi=160)
         return ani
 
     def verify_solution(self):

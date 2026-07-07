@@ -57,14 +57,14 @@ class MuJoCoVehicleVisualizer:
         playbacks,
         x_p_goal,
         target_radius=1.0,
-        trail_samples=140,
+        trail_samples=200,
         vehicle_length=0.7,
         vehicle_width=0.35,
     ):
         self.playbacks = list(playbacks)
         if not self.playbacks:
             raise ValueError("playbacks must contain at least one VehiclePlayback")
-
+        print(playbacks[0])
         self.x_p_goal = np.asarray(x_p_goal, dtype=float)
         self.target_radius = float(target_radius)
         self.trail_samples = int(trail_samples)
@@ -85,8 +85,8 @@ class MuJoCoVehicleVisualizer:
         self._chassis_geom_ids = [
             self.model.geom(f"chassis_{idx}").id for idx in range(len(self.playbacks))
         ]
-        self._nose_geom_ids = [
-            self.model.geom(f"nose_{idx}").id for idx in range(len(self.playbacks))
+        self._seat_geom_ids = [
+            self.model.geom(f"seat_{idx}").id for idx in range(len(self.playbacks))
         ]
 
         self._set_poses(self.t_start)
@@ -163,29 +163,32 @@ class MuJoCoVehicleVisualizer:
 """
 
     def _vehicle_body(self, playback_idx):
-        wheel_radius = self.vehicle_width / 3
-        wheel_half_width = self.vehicle_width / 12
-        fork_height = wheel_radius * 1.35
-        direction_length = self.vehicle_length * 0.55
-        axle_radius = wheel_radius * 0.22
+        wheel_radius = self.vehicle_width / 1.25
+        wheel_half_width = self.vehicle_width / 8
+        axle_height = wheel_radius * 2.5
+        axle_radius = wheel_radius * 0.10
         hub_radius = wheel_radius * 0.32
+        seat_half_length = self.vehicle_length * 0.28
+        seat_half_width = self.vehicle_width * 0.35
+        seat_half_height = self.vehicle_width * 0.08
         return f"""
-    <body name="vehicle_{playback_idx}" pos="0 0 0.12">
+    <body name="vehicle_{playback_idx}" pos="0 0 {wheel_radius:.6f}">
       <freejoint name="vehicle_{playback_idx}_freejoint"/>
       <geom name="chassis_{playback_idx}" type="cylinder"
             euler="1.570796326795 0 0"
             size="{wheel_radius:.6f} {wheel_half_width:.6f}"
             rgba="0.16 0.55 0.85 1"/>
-      <geom name="nose_{playback_idx}" type="capsule"
-            fromto="0 0 {fork_height:.6f} {direction_length:.6f} 0 {fork_height:.6f}"
-            size="{axle_radius:.6f}"
-            rgba="0.05 0.15 0.20 1"/>
       <geom name="axle_{playback_idx}" type="cylinder"
-            euler="1.570796326795 0 0"
-            size="{axle_radius:.6f} {wheel_half_width * 1.35:.6f}"
+            pos="0 0 {axle_height / 2:.6f}"
+            size="{axle_radius:.6f} {axle_height / 2:.6f}"
             rgba="0.02 0.02 0.02 1"/>
+      <geom name="seat_{playback_idx}" type="box"
+            pos="0 0 {axle_height + seat_half_height:.6f}"
+            size="{seat_half_length:.6f} {seat_half_width:.6f} {seat_half_height:.6f}"
+            rgba="0.05 0.15 0.20 1"/>
       <geom name="hub_{playback_idx}" type="sphere"
-            size="{hub_radius:.6f}" rgba="0.96 0.96 0.96 1"/>
+            size="{hub_radius:.6f}"
+            rgba="0.96 0.96 0.96 1"/>
     </body>
 """
 
@@ -221,14 +224,13 @@ class MuJoCoVehicleVisualizer:
             f'rgba="0 0 0 1"/>'
         )
 
-    @staticmethod
-    def pose_at(solution, t):
+    def pose_at(self, solution, t):
         clamped_t = float(np.clip(t, solution.t[0], solution.t[-1]))
         state = solution(clamped_t)
         direction = state[2:4]
         yaw = math.atan2(direction[1], direction[0])
         return VehiclePose(
-            position=np.array([state[0], state[1], 0.16], dtype=float),
+            position=np.array([state[0], state[1], self.vehicle_width], dtype=float),
             yaw=yaw,
             mode=int(round(state[5])),
         )
@@ -243,7 +245,7 @@ class MuJoCoVehicleVisualizer:
 
             color = MODE_COLORS.get(pose.mode, MODE_COLORS[3])
             self.model.geom_rgba[self._chassis_geom_ids[idx]] = color
-            self.model.geom_rgba[self._nose_geom_ids[idx]] = np.array(
+            self.model.geom_rgba[self._seat_geom_ids[idx]] = np.array(
                 [
                     max(color[0] - 0.08, 0.0),
                     max(color[1] - 0.08, 0.0),

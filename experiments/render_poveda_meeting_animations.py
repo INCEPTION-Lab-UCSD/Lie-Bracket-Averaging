@@ -296,7 +296,7 @@ def main():
         build_vehicle_animation(
             modules["vehicle"],
             output_dir,
-            "vehicle_branch_mode_colored_rover.mp4",
+            "vehicle_branch_mode_colored_drone.mp4",
         )
 
 

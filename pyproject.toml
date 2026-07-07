@@ -5,7 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "imageio-ffmpeg>=0.6.0",
     "matplotlib>=3.11.0",
+    "mediapy>=1.2.7",
     "mujoco>=3.10.0",
     "numpy>=2.4.6",
     "scipy>=1.17.1",

@@ -10,6 +10,8 @@ import vehicle_trajectories
 
 def run_vehicle_trajectory_simulation():
     epsilon = 1 / np.sqrt(10 * np.pi)
+    t_1 = 0.0
+    t_2 = 15.0
     mode_schedule = [
         (0.0, 2),
         (1.0, 3),
@@ -22,6 +24,7 @@ def run_vehicle_trajectory_simulation():
         (14.0, 1),
         (14.5, 2),
     ]
+
     mode_schedule_diverge = [
         (0.0, 2),
         (1.0, 1),
@@ -37,7 +40,7 @@ def run_vehicle_trajectory_simulation():
 
     vehicle_trajectory_simulation_converge = (
         vehicle_trajectories.VehicleTrajectorySimulation(
-            x_0_p_converge, x_p_goal, epsilon, 0.0, 15.0, mode_schedule=mode_schedule
+            x_0_p_converge, x_p_goal, epsilon, t_1, t_2, mode_schedule=mode_schedule
         )
     )
 
@@ -48,8 +51,8 @@ def run_vehicle_trajectory_simulation():
             x_0_p_diverge,
             x_p_goal,
             epsilon,
-            0.0,
-            15.0,
+            t_1,
+            t_2,
             mode_schedule=mode_schedule_diverge,
         )
     )
@@ -61,7 +64,7 @@ def run_vehicle_trajectory_simulation():
     # )
 
     ani = vehicle_trajectory_simulation_converge.animate_solution(
-        [hybrid_converge_solution, hybrid_diverge_solution]
+        [hybrid_converge_solution, hybrid_diverge_solution], frame_step=500
     )
     plt.show()
 
@@ -159,7 +162,7 @@ def run_global_es_sphere():
 
 
 if __name__ == "__main__":
-    # run_vehicle_trajectory_simulation()
-    run_oscillator_synchronization_simulation()
+    run_vehicle_trajectory_simulation()
+    # run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()
     # run_global_es_sphere()
