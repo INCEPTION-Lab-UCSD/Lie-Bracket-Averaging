@@ -162,7 +162,7 @@ def run_global_es_sphere():
 
 
 if __name__ == "__main__":
-    run_vehicle_trajectory_simulation()
+    # run_vehicle_trajectory_simulation()
     # run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()
-    # run_global_es_sphere()
+    run_global_es_sphere()

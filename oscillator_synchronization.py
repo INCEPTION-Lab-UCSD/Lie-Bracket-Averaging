@@ -10,6 +10,32 @@ from scipy.integrate import solve_ivp
 
 import hybrid_solution
 
+DEEP_NAVY_THEME = {
+    "figure": "#08111F",
+    "axes": "#0E1A2B",
+    "text": "#F2F5F8",
+    "grid": "#26384F",
+    "trajectory": "#FFB000",
+    "arrow": "#5CC8FF",
+    "circle": "#F2F5F8",
+    "initial": "#F2F5F8",
+    "edge": "#08111F",
+    "cmap": "magma",
+}
+
+CHARCOAL_THEME = {
+    "figure": "#111318",
+    "axes": "#181B22",
+    "text": "#E8EAED",
+    "grid": "#3A3F4B",
+    "trajectory": "#FF4D4D",
+    "arrow": "#4DA3FF",
+    "circle": "#F2F5F8",
+    "initial": "#F2F5F8",
+    "edge": "#08111F",
+    "cmap": "viridis",
+}
+
 
 def generate_random_mode_schedule(t_1, t_2, num_modes, eta_1=1.0, N_0=1, seed=None):
     """
@@ -497,16 +523,61 @@ class Oscillator_Synchronization:
     def _wrapped_phase_difference(self, xi):
         return np.angle(np.exp(1j * (xi[0] - xi[1])))
 
-    def _setup_phase_difference_axis(self, ax, t_start, t_end):
-        ax.set_title("Phase Difference", fontsize=11, pad=3)
+    @staticmethod
+    def _apply_dark_2d_axis_style(ax, theme=CHARCOAL_THEME):
+        ax.set_facecolor(theme["axes"])
+        ax.tick_params(colors=theme["text"])
+        ax.xaxis.label.set_color(theme["text"])
+        ax.yaxis.label.set_color(theme["text"])
+        ax.title.set_color(theme["text"])
+        for spine in ax.spines.values():
+            spine.set_color(theme["grid"])
+
+    @staticmethod
+    def _apply_dark_legend_style(legend, theme=CHARCOAL_THEME):
+        if legend is None:
+            return
+        legend.get_frame().set_facecolor(theme["axes"])
+        legend.get_frame().set_edgecolor(theme["grid"])
+        legend.get_frame().set_alpha(0.95)
+        for text in legend.get_texts():
+            text.set_color(theme["text"])
+
+    @staticmethod
+    def _apply_dark_colorbar_style(colorbar, theme=CHARCOAL_THEME):
+        colorbar.ax.set_facecolor(theme["figure"])
+        colorbar.ax.tick_params(colors=theme["text"])
+        colorbar.ax.yaxis.label.set_color(theme["text"])
+        colorbar.outline.set_edgecolor(theme["grid"])
+
+    @staticmethod
+    def _apply_dark_3d_axis_style(ax, theme=CHARCOAL_THEME):
+        ax.set_facecolor(theme["axes"])
+        for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+            axis.set_pane_color(colors.to_rgba(theme["axes"], 1.0))
+            axis.pane.set_edgecolor(colors.to_rgba(theme["axes"], 1.0))
+            axis.line.set_color(colors.to_rgba(theme["axes"], 0.0))
+            axis._axinfo["grid"]["color"] = colors.to_rgba(theme["axes"], 0.0)
+            axis._axinfo["grid"]["linewidth"] = 0.0
+            axis._axinfo["axisline"]["color"] = colors.to_rgba(theme["axes"], 0.0)
+            axis._axinfo["axisline"]["linewidth"] = 0.0
+        ax.grid(False)
+
+    def _setup_phase_difference_axis(self, ax, t_start, t_end, theme=None):
+        ax.set_title("Phase Difference", fontsize=12, pad=6)
         ax.set_xlabel(r"$t$")
         ax.set_ylabel(r"$\xi_1-\xi_2$")
         ax.set_xlim(t_start, t_end)
         ax.set_ylim(-np.pi, np.pi)
         ax.set_yticks([-np.pi, 0.0, np.pi])
         ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
-        ax.axhline(0.0, color="black", linewidth=1, alpha=0.35)
-        ax.grid(True, alpha=0.3)
+        if theme is not None:
+            self._apply_dark_2d_axis_style(ax, theme)
+            ax.axhline(0.0, color=theme["text"], linewidth=1, alpha=0.38)
+            ax.grid(True, color=theme["grid"], alpha=0.6)
+        else:
+            ax.axhline(0.0, color="black", linewidth=1, alpha=0.35)
+            ax.grid(True, alpha=0.3)
 
     def _mode_trace_data_until(self, t_current, t_final=None):
         if t_final is None:
@@ -556,30 +627,37 @@ class Oscillator_Synchronization:
             return list(range(1, max_mode + 1))
         return sorted(set(np.linspace(1, max_mode, 4, dtype=int)))
 
-    def _setup_unit_circle_axis(self, ax, oscillator_index):
+    def _setup_unit_circle_axis(self, ax, oscillator_index, theme=None):
         theta = np.linspace(0.0, 2 * np.pi, 400)
         circle = self.xi_to_cartesian(theta)
-        ax.plot(circle[:, 0], circle[:, 1], color="0.25", linewidth=1.6)
-        ax.axhline(0.0, color="0.82", linewidth=0.8, zorder=0)
-        ax.axvline(0.0, color="0.82", linewidth=0.8, zorder=0)
+        circle_color = theme["circle"] if theme is not None else "0.25"
+        grid_color = theme["grid"] if theme is not None else "0.82"
+        ax.plot(circle[:, 0], circle[:, 1], color=circle_color, linewidth=1.6)
+        ax.axhline(0.0, color=grid_color, linewidth=0.8, alpha=0.8, zorder=0)
+        ax.axvline(0.0, color=grid_color, linewidth=0.8, alpha=0.8, zorder=0)
         ax.set_aspect("equal", adjustable="box")
         ax.set_xlim(-1.28, 1.28)
         ax.set_ylim(-1.28, 1.28)
         ax.set_xticks([])
         ax.set_yticks([])
-        return ax.set_title(rf"Oscillator {oscillator_index + 1}", fontsize=11)
+        if theme is not None:
+            self._apply_dark_2d_axis_style(ax, theme)
+        title = ax.set_title(rf"Oscillator {oscillator_index + 1}", fontsize=11)
+        if theme is not None:
+            title.set_color(theme["text"])
+        return title
 
-    def _setup_unit_circle_axes(self, axes, point_color="red"):
+    def _setup_unit_circle_axes(self, axes, point_color="red", theme=None):
         points = []
         arrows = []
         titles = []
         for i, ax in enumerate(axes):
-            titles.append(self._setup_unit_circle_axis(ax, i))
+            titles.append(self._setup_unit_circle_axis(ax, i, theme=theme))
             point = ax.scatter(
                 [],
                 [],
                 color=point_color,
-                edgecolor="black",
+                edgecolor=theme["edge"] if theme is not None else "black",
                 linewidth=0.6,
                 s=70,
                 zorder=4,
@@ -593,37 +671,40 @@ class Oscillator_Synchronization:
                 scale_units="xy",
                 scale=1,
                 width=0.014,
-                color="#1f77b4",
+                color=theme["arrow"] if theme is not None else "#1f77b4",
                 clip_on=False,
                 zorder=5,
             )
             points.append(point)
             arrows.append(arrow)
-        self._add_current_direction_legend(axes[0])
+        self._add_current_direction_legend(axes[0], theme=theme)
         return points, arrows, titles
 
     @staticmethod
-    def _add_current_direction_legend(ax):
-        current_direction_handle = Line2D(
+    def _add_current_direction_legend(ax, theme=None):
+        control_direction_handle = Line2D(
             [0],
             [0],
-            color="#1f77b4",
+            color=theme["arrow"] if theme is not None else "#1f77b4",
             marker=">",
             markersize=8,
             linewidth=2,
-            label="current_direction",
+            linestyle="None",
+            label="Control Direction",
         )
-        ax.legend(
-            handles=[current_direction_handle],
+        legend = ax.legend(
+            handles=[control_direction_handle],
             loc="lower center",
-            bbox_to_anchor=(0.5, -0.18),
+            bbox_to_anchor=(0.5, -0.25),
             frameon=True,
             fontsize=9,
         )
+        if theme is not None:
+            Oscillator_Synchronization._apply_dark_legend_style(legend, theme)
 
-    def _current_direction_arrow(self, xi_value, direction_value):
+    def _control_direction_arrow(self, xi_value, alpha_value):
         tangent = np.array([np.sin(xi_value), np.cos(xi_value)])
-        return 0.42 * np.sign(direction_value) * tangent
+        return 0.42 * np.sign(alpha_value) * tangent
 
     def _update_unit_circle_artists(
         self,
@@ -635,14 +716,13 @@ class Oscillator_Synchronization:
         alpha,
     ):
         cartesian = self.xi_to_cartesian(xi_values)
+
         for i, point in enumerate(points):
             point.set_offsets([cartesian[i]])
-            arrow = self._current_direction_arrow(xi_values[i], direction[i])
+            arrow = self._control_direction_arrow(xi_values[i], alpha[i])
             arrows[i].set_offsets([cartesian[i]])
             arrows[i].set_UVC([arrow[0]], [arrow[1]])
-            titles[i].set_text(
-                rf"Oscillator {i + 1}: $Control Direction = {alpha[i]:.0f}$"
-            )
+            titles[i].set_text(rf"Oscillator {i + 1}: Control Direction={alpha[i]:.0f}")
 
     def current_direction(self, state, mode):
         tau_index, graph_index = self.bijection(mode)
@@ -664,7 +744,7 @@ class Oscillator_Synchronization:
         n_grid=300,
         n_time=2000,
         trajectory_color="red",
-        cost_gamma=1.8,
+        cost_gamma=None,
     ):
         """
         Plot z_1(t) and the wrapped two-oscillator phase trajectory.
@@ -746,7 +826,7 @@ class Oscillator_Synchronization:
         ax_phase.set_yticks(range(0, 7))
         ax_phase.legend(loc="upper left", bbox_to_anchor=(0.0, 1.1), ncol=2)
 
-        colorbar = fig.colorbar(image, ax=ax_phase, fraction=0.046, pad=0.04)
+        colorbar = fig.colorbar(image, ax=ax_phase, fraction=0.046, pad=0.14)
         colorbar.set_ticks(np.linspace(norm.vmin, norm.vmax, 5))
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
 
@@ -891,6 +971,7 @@ class Oscillator_Synchronization:
             state = solution(t_current)
             alpha = self._alpha_for_mode(mode)
             direction = self.current_direction(state, mode)
+
             self._update_unit_circle_artists(
                 circle_points,
                 circle_arrows,
@@ -930,8 +1011,9 @@ class Oscillator_Synchronization:
         n_time=2000,
         major_radius=2.0,
         minor_radius=0.7,
-        trajectory_color="red",
+        trajectory_color=CHARCOAL_THEME["trajectory"],
         surface_alpha=0.55,
+        trajectory_lift=0.0,
         elev=25,
         azim=-60,
         cost_gamma=1.8,
@@ -944,20 +1026,28 @@ class Oscillator_Synchronization:
         if not 0 <= graph_index < self.N_2:
             raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
 
-        fig = plt.figure(figsize=(9, 5))
-        grid_spec = fig.add_gridspec(1, 2, width_ratios=[1, 3])
-        ax_mode = fig.add_subplot(grid_spec[0, 0])
-        ax_torus = fig.add_subplot(grid_spec[0, 1], projection="3d")
+        theme = CHARCOAL_THEME
+        fig = plt.figure(figsize=(12, 7))
+        fig.patch.set_facecolor(theme["figure"])
+        grid_spec = fig.add_gridspec(
+            3,
+            5,
+            width_ratios=[1.35, 1.45, 1.45, 1.45, 1.45],
+            height_ratios=[1.25, 1.25, 0.55],
+            hspace=0.55,
+            wspace=0.18,
+        )
+        ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
+        ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
+        ax_torus = fig.add_subplot(grid_spec[:2, 1:], projection="3d")
+        ax_phase_diff = fig.add_subplot(grid_spec[2, :])
 
         t_end = solution.t[-1]
-        z_values, t_values = self._mode_trace_data_until(t_end, t_final=t_end)
-        ax_mode.plot(z_values, t_values, color="black", linewidth=4)
-        ax_mode.set_xlabel(r"$z_1(t)$")
-        ax_mode.set_ylabel(r"$t$")
-        ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
-        ax_mode.set_ylim(solution.t[0], t_end)
-        ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.grid(True, alpha=0.3)
+        circle_points, circle_arrows, circle_titles = self._setup_unit_circle_axes(
+            (ax_circle_1, ax_circle_2),
+            point_color=trajectory_color,
+            theme=theme,
+        )
 
         phase_max = 2 * np.pi
         xi_values = np.linspace(0.0, phase_max, n_grid)
@@ -971,7 +1061,8 @@ class Oscillator_Synchronization:
         )
 
         norm = self._cost_color_norm(cost, cost_gamma)
-        facecolors = cm.gray(norm(cost))
+        torus_cmap = plt.get_cmap(theme["cmap"])
+        facecolors = torus_cmap(norm(cost))
         facecolors[..., -1] = surface_alpha
 
         ax_torus.plot_surface(
@@ -979,6 +1070,7 @@ class Oscillator_Synchronization:
             surface_y,
             surface_z,
             facecolors=facecolors,
+            edgecolor="none",
             linewidth=0,
             antialiased=False,
             shade=False,
@@ -990,7 +1082,7 @@ class Oscillator_Synchronization:
             xi[0],
             xi[1],
             major_radius=major_radius,
-            minor_radius=minor_radius,
+            minor_radius=minor_radius + trajectory_lift,
         )
         ax_torus.plot(
             traj_x,
@@ -1004,27 +1096,93 @@ class Oscillator_Synchronization:
             traj_x[0],
             traj_y[0],
             traj_z[0],
-            color="black",
+            color=theme["initial"],
+            edgecolor=theme["edge"],
+            linewidth=0.6,
             s=45,
             depthshade=False,
             label=r"$\xi(0)$",
         )
+        ax_torus.scatter(
+            traj_x[-1],
+            traj_y[-1],
+            traj_z[-1],
+            color=trajectory_color,
+            edgecolor="black",
+            linewidth=0.6,
+            s=45,
+            depthshade=False,
+            label=r"$\xi(t_f)$",
+        )
 
-        axis_limit = major_radius + minor_radius
-
-        ax_torus.set_box_aspect((1, 1, minor_radius / axis_limit))
+        axis_limit = major_radius + minor_radius + trajectory_lift
+        ax_torus.set_xlim(-axis_limit, axis_limit)
+        ax_torus.set_ylim(-axis_limit, axis_limit)
+        ax_torus.set_zlim(
+            -(minor_radius + trajectory_lift),
+            minor_radius + trajectory_lift,
+        )
+        ax_torus.set_box_aspect(
+            (1, 1, (minor_radius + trajectory_lift) / axis_limit),
+            zoom=1.2,
+        )
+        self._apply_dark_3d_axis_style(ax_torus, theme)
         self._hide_3d_axis_labels_and_ticks(ax_torus)
         ax_torus.view_init(elev=elev, azim=azim)
-        ax_torus.legend(loc="upper left")
+        self._apply_dark_legend_style(ax_torus.legend(loc="upper left"), theme)
 
-        mappable = cm.ScalarMappable(norm=norm, cmap=cm.gray)
+        mappable = cm.ScalarMappable(norm=norm, cmap=torus_cmap)
         mappable.set_array(cost)
-        colorbar = fig.colorbar(mappable, ax=ax_torus, fraction=0.046, pad=0.04)
-
+        colorbar = fig.colorbar(
+            mappable,
+            ax=ax_torus,
+            fraction=0.032,
+            pad=0.14,
+            shrink=0.92,
+        )
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
+        self._apply_dark_colorbar_style(colorbar, theme)
 
-        fig.tight_layout()
-        return fig, (ax_mode, ax_torus)
+        phase_difference = self._wrapped_phase_difference(xi)
+        self._setup_phase_difference_axis(
+            ax_phase_diff,
+            solution.t[0],
+            t_end,
+            theme=theme,
+        )
+        ax_phase_diff.plot(
+            t_eval, phase_difference, color=trajectory_color, linewidth=2.5
+        )
+        ax_phase_diff.plot(
+            [t_eval[-1]],
+            [phase_difference[-1]],
+            marker="o",
+            color=trajectory_color,
+            markersize=5,
+        )
+
+        state_end = solution(t_end)
+        mode_end = self._mode_at_time(t_end)
+        alpha_end = self._alpha_for_mode(mode_end)
+        direction_end = self.current_direction(state_end, mode_end)
+        self._update_unit_circle_artists(
+            circle_points,
+            circle_arrows,
+            circle_titles,
+            xi[:, -1],
+            direction_end,
+            alpha_end,
+        )
+
+        fig.subplots_adjust(
+            left=0.06,
+            right=0.95,
+            top=0.93,
+            bottom=0.10,
+            wspace=0.18,
+            hspace=0.55,
+        )
+        return fig, ((ax_circle_1, ax_circle_2), ax_torus, ax_phase_diff)
 
     def animate_solution_3d(
         self,
@@ -1032,13 +1190,14 @@ class Oscillator_Synchronization:
         graph_index=0,
         n_grid=120,
         n_time=2000,
-        frame_step=200,
+        frame_step=500,
         interval=40,
         repeat_delay=1200,
         major_radius=2.0,
         minor_radius=0.7,
-        trajectory_color="red",
+        trajectory_color=CHARCOAL_THEME["trajectory"],
         surface_alpha=0.55,
+        trajectory_lift=0.0,
         elev=25,
         azim=-60,
         cost_gamma=None,
@@ -1053,18 +1212,21 @@ class Oscillator_Synchronization:
         if not 0 <= graph_index < self.N_2:
             raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
 
-        fig = plt.figure(figsize=(10, 5.5))
+        theme = CHARCOAL_THEME
+        fig = plt.figure(figsize=(12, 7))
+        fig.patch.set_facecolor(theme["figure"])
         grid_spec = fig.add_gridspec(
             3,
-            2,
-            width_ratios=[1, 3.35],
-            height_ratios=[1, 1, 0.36],
-            hspace=0.78,
+            4,
+            width_ratios=[1.45, 1.45, 1.45, 1.0],
+            height_ratios=[1.25, 1.25, 0.55],
+            hspace=0.55,
+            wspace=0.18,
         )
         ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
         ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
-        ax_torus = fig.add_subplot(grid_spec[:2, 1], projection="3d")
-        ax_phase_diff = fig.add_subplot(grid_spec[2, 1])
+        ax_torus = fig.add_subplot(grid_spec[:2, 1:-1], projection="3d")
+        ax_phase_diff = fig.add_subplot(grid_spec[2, 1:-1])
 
         t_start = solution.t[0]
         t_end = solution.t[-1]
@@ -1072,6 +1234,7 @@ class Oscillator_Synchronization:
         circle_points, circle_arrows, circle_titles = self._setup_unit_circle_axes(
             (ax_circle_1, ax_circle_2),
             point_color=trajectory_color,
+            theme=theme,
         )
 
         phase_max = 2 * np.pi
@@ -1086,7 +1249,8 @@ class Oscillator_Synchronization:
         )
 
         norm = self._cost_color_norm(cost, cost_gamma)
-        facecolors = cm.gray(norm(cost))
+        torus_cmap = plt.get_cmap(theme["cmap"])
+        facecolors = torus_cmap(norm(cost))
         facecolors[..., -1] = surface_alpha
 
         ax_torus.plot_surface(
@@ -1094,28 +1258,36 @@ class Oscillator_Synchronization:
             surface_y,
             surface_z,
             facecolors=facecolors,
+            edgecolor="none",
             linewidth=0,
             antialiased=False,
             shade=False,
         )
 
-        axis_limit = major_radius + minor_radius
+        axis_limit = major_radius + minor_radius + trajectory_lift
         ax_torus.set_xlim(-axis_limit, axis_limit)
         ax_torus.set_ylim(-axis_limit, axis_limit)
-        ax_torus.set_zlim(-minor_radius, minor_radius)
-        ax_torus.set_box_aspect((1, 1, minor_radius / axis_limit))
+        ax_torus.set_zlim(
+            -(minor_radius + trajectory_lift),
+            minor_radius + trajectory_lift,
+        )
+        ax_torus.set_box_aspect(
+            (1, 1, (minor_radius + trajectory_lift) / axis_limit),
+            zoom=0.95,
+        )
+        self._apply_dark_3d_axis_style(ax_torus, theme)
         self._hide_3d_axis_labels_and_ticks(ax_torus)
         ax_torus.view_init(elev=elev, azim=azim)
 
         t_eval = np.linspace(t_start, t_end, n_time)
         xi = np.mod(solution(t_eval)[:2], phase_max)
         phase_difference = self._wrapped_phase_difference(xi)
-        self._setup_phase_difference_axis(ax_phase_diff, t_start, t_end)
+        self._setup_phase_difference_axis(ax_phase_diff, t_start, t_end, theme=theme)
         traj_x, traj_y, traj_z = self.embed_torus_3d(
             xi[0],
             xi[1],
             major_radius=major_radius,
-            minor_radius=minor_radius,
+            minor_radius=minor_radius + trajectory_lift,
         )
 
         (trajectory_line,) = ax_torus.plot(
@@ -1131,6 +1303,8 @@ class Oscillator_Synchronization:
             [],
             [],
             color=trajectory_color,
+            edgecolor=theme["edge"],
+            linewidth=0.6,
             s=35,
             depthshade=False,
         )
@@ -1138,7 +1312,9 @@ class Oscillator_Synchronization:
             traj_x[0],
             traj_y[0],
             traj_z[0],
-            color="black",
+            color=theme["initial"],
+            edgecolor=theme["edge"],
+            linewidth=0.6,
             s=45,
             depthshade=False,
             label=r"$\xi(0)$",
@@ -1156,26 +1332,27 @@ class Oscillator_Synchronization:
             color=trajectory_color,
             markersize=5,
         )
-        ax_torus.legend(loc="upper left")
+        self._apply_dark_legend_style(ax_torus.legend(loc="upper left"), theme)
 
-        mappable = cm.ScalarMappable(norm=norm, cmap=cm.gray)
+        mappable = cm.ScalarMappable(norm=norm, cmap=torus_cmap)
         mappable.set_array(cost)
         colorbar = fig.colorbar(
             mappable,
             ax=ax_torus,
-            fraction=0.035,
-            pad=0.12,
-            shrink=0.88,
+            fraction=0.032,
+            pad=0.14,
+            shrink=0.92,
         )
 
-        colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
+        colorbar.set_label(r"Cost: $J(\xi)$", rotation=270, labelpad=18)
+        self._apply_dark_colorbar_style(colorbar, theme)
         fig.subplots_adjust(
             left=0.06,
-            right=0.94,
-            top=0.90,
+            right=0.95,
+            top=0.93,
             bottom=0.10,
-            wspace=0.28,
-            hspace=0.78,
+            wspace=0.18,
+            hspace=0.55,
         )
 
         frame_indices = np.linspace(0, n_time - 1, frame_step, dtype=int)
@@ -1202,6 +1379,7 @@ class Oscillator_Synchronization:
             state = solution(t_current)
             alpha = self._alpha_for_mode(mode)
             direction = self.current_direction(state, mode)
+
             self._update_unit_circle_artists(
                 circle_points,
                 circle_arrows,
@@ -1268,9 +1446,9 @@ class Oscillator_Synchronization:
         ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
         ax_mode.set_ylim(solution.t[0], solution.t[-1])
         ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.grid(True, which="major", alpha=0.35)
+        # ax_mode.grid(True, which="major", alpha=0.35)
         ax_mode.minorticks_on()
-        ax_mode.grid(True, which="minor", linestyle=":", alpha=0.25)
+        # ax_mode.grid(True, which="minor", linestyle=":", alpha=0.25)
 
         for i in range(self.r):
             color = component_colors[i % len(component_colors)]
@@ -1324,9 +1502,9 @@ class Oscillator_Synchronization:
         ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
         ax_mode.set_ylim(solution.t[0], solution.t[-1])
         ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.grid(True, which="major", alpha=0.35)
+        # ax_mode.grid(True, which="major", alpha=0.35)
         ax_mode.minorticks_on()
-        ax_mode.grid(True, which="minor", linestyle=":", alpha=0.25)
+        # ax_mode.grid(True, which="minor", linestyle=":", alpha=0.25)
 
         ax_x1.set_ylabel(r"$x_1^i(t)$")
         ax_x2.set_ylabel(r"$x_2^i(t)$")

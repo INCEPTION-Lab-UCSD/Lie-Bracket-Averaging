@@ -73,11 +73,11 @@ class VehicleTrajectorySimulation:
 
         goal = np.asarray(self.x_p_goal).reshape((N,) + (1,) * (x.ndim - 1))
         # simulation: goal stays (2,)
-        # meshgrid:   goal becomes (2, 1, 1) → broadcasts over (2, 400, 400)
+        # meshgrid:   goal becomes (2, 1, 1) -> broadcasts over (2, 400, 400)
 
         return 1 / N * np.sum((x - goal) ** N, axis=0)
-        # simulation: sums over shape (2,)         → scalar       ✓
-        # meshgrid:   sums over shape (2,400,400)  → (400, 400)   ✓
+        # simulation: sums over shape (2,)         -> scalar
+        # meshgrid:   sums over shape (2,400,400)  -> (400, 400)
 
     # x = [x_1, x_2, x_3, x_4, tau_2, z_1]
     def kinematics(self, t, x):
@@ -293,7 +293,7 @@ class VehicleTrajectorySimulation:
 
     def generate_random_mode_schedule(
         self,
-        eta_1=1.0,  # avg switches per unit time → controls switch frequency
+        eta_1=1.0,  # avg switches per unit time -> controls switch frequency
         eta_2=None,  # if given, enforces AAT constraint (8b) on time in Qu={1,2}
         N_0=2,  # jump budget slack (unused directly but kept for clarity)
         T_0=1.0,  # activation time slack for AAT budget
@@ -305,7 +305,7 @@ class VehicleTrajectorySimulation:
         Switch times are sampled from an exponential distribution with mean 1/eta_1,
         naturally producing an average dwell-time of 1/eta_1 between switches.
         At each switch, the new mode is drawn uniformly from Q\\{current_mode},
-        matching the jump map z+_1 ∈ Q\\{z_1} in (6b).
+        matching the jump map z+_1 in Q\\{z_1} in (6b).
 
         If eta_2 is provided, the total time spent in Qu={1,2} is tracked and
         capped at eta_2*(t_2-t_1)+T_0 to enforce the AAT constraint (8b). When
@@ -316,7 +316,7 @@ class VehicleTrajectorySimulation:
         Qu = {1, 2}  # unstable modes: spoofed, no measurement
         Qs = {3}  # stable mode:   nominal operation
 
-        # Qu budget from constraint (8b): T♯(t_1,t_2) ≤ η₂(t_2−t_1) + T°
+        # Qu budget from constraint (8b): T#(t_1,t_2) <= eta_2(t_2-t_1) + T_0
         Qu_budget = eta_2 * (self.t_2 - self.t_1) + T_0 if eta_2 is not None else np.inf
 
         # Random initial mode at t_1
@@ -342,7 +342,7 @@ class VehicleTrajectorySimulation:
             if mode in Qu:
                 time_in_Qu += dwell
 
-            # Available modes: always exclude current (jump map z+_1 ∈ Q\{z_1})
+            # Available modes: always exclude current (jump map z+_1 in Q\{z_1})
             available = [m for m in Q if m != mode]
 
             # If Qu budget exhausted, force next mode into Qs

@@ -2,7 +2,7 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import cm
-from matplotlib.colors import Normalize
+from matplotlib.colors import Normalize, to_rgba
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
@@ -12,6 +12,18 @@ import hybrid_solution
 e1 = np.array([1, 0, 0])
 e2 = np.array([0, 1, 0])
 e3 = np.array([0, 0, 1])
+
+CHARCOAL_THEME = {
+    "figure": "#111318",
+    "axes": "#181B22",
+    "text": "#E8EAED",
+    "grid": "#3A3F4B",
+    "trajectory": "#FF4D4D",
+    "initial": "#E8EAED",
+    "target": "#6EE7B7",
+    "edge": "#111318",
+    "cmap": "cividis",
+}
 
 
 class Global_ES_Sphere:
@@ -157,6 +169,33 @@ class Global_ES_Sphere:
             * np.pow(self.kappa, -0.5)
         )
 
+    @staticmethod
+    def _apply_charcoal_3d_style(ax, theme=CHARCOAL_THEME):
+        ax.set_facecolor(theme["axes"])
+        for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+            axis.set_pane_color(to_rgba(theme["axes"], 1.0))
+            axis.pane.set_edgecolor(to_rgba(theme["grid"], 0.5))
+            axis.line.set_color(to_rgba(theme["grid"], 0.5))
+            axis._axinfo["grid"]["color"] = to_rgba(theme["grid"], 0.35)
+            axis._axinfo["axisline"]["color"] = to_rgba(theme["grid"], 0.5)
+
+    @staticmethod
+    def _apply_charcoal_legend_style(legend, theme=CHARCOAL_THEME):
+        if legend is None:
+            return
+        legend.get_frame().set_facecolor(theme["axes"])
+        legend.get_frame().set_edgecolor(theme["grid"])
+        legend.get_frame().set_alpha(0.95)
+        for text in legend.get_texts():
+            text.set_color(theme["text"])
+
+    @staticmethod
+    def _apply_charcoal_colorbar_style(colorbar, theme=CHARCOAL_THEME):
+        colorbar.ax.set_facecolor(theme["figure"])
+        colorbar.ax.tick_params(colors=theme["text"])
+        colorbar.ax.yaxis.label.set_color(theme["text"])
+        colorbar.outline.set_edgecolor(theme["grid"])
+
     def plot_sphere_simulation(
         self,
         solution,
@@ -182,10 +221,14 @@ class Global_ES_Sphere:
 
         j_values = 1.0 - z / r
         norm = Normalize(vmin=0.0, vmax=2.0)
-        facecolors = cm.gray(norm(j_values))
+        theme = CHARCOAL_THEME
+        sphere_cmap = plt.get_cmap(theme["cmap"])
+        facecolors = sphere_cmap(norm(j_values))
 
         fig = plt.figure(figsize=(8, 6))
+        fig.patch.set_facecolor(theme["figure"])
         ax = fig.add_subplot(111, projection="3d")
+        self._apply_charcoal_3d_style(ax, theme)
         ax.plot_surface(
             x,
             y,
@@ -193,7 +236,8 @@ class Global_ES_Sphere:
             rstride=1,
             cstride=1,
             facecolors=facecolors,
-            linewidth=0.3,
+            edgecolor=to_rgba(theme["grid"], 0.35),
+            linewidth=0.2,
             antialiased=False,
             shade=False,
             zorder=1,
@@ -208,7 +252,7 @@ class Global_ES_Sphere:
             trajectory[0],
             trajectory[1],
             trajectory[2],
-            color="red",
+            color=theme["trajectory"],
             linewidth=1.8,
             zorder=10,
             label=r"$x(t)$",
@@ -219,7 +263,9 @@ class Global_ES_Sphere:
             x0_marker[2],
             marker="o",
             s=80,
-            color="black",
+            color=theme["initial"],
+            edgecolor=theme["edge"],
+            linewidth=0.8,
             depthshade=False,
             zorder=11,
             label=r"$x(0)$",
@@ -230,16 +276,19 @@ class Global_ES_Sphere:
             x_target_marker[2],
             marker="o",
             s=160,
-            color="green",
+            color=theme["target"],
+            edgecolor=theme["edge"],
+            linewidth=0.8,
             depthshade=False,
             zorder=11,
             label=r"$x^*$",
         )
 
-        mappable = cm.ScalarMappable(norm=norm, cmap=cm.gray)
+        mappable = cm.ScalarMappable(norm=norm, cmap=sphere_cmap)
         mappable.set_array(j_values)
         colorbar = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.04)
         colorbar.set_label(r"$J(x)$", rotation=270, labelpad=18)
+        self._apply_charcoal_colorbar_style(colorbar, theme)
 
         ax.set_xlim([-1.5 * r, 1.5 * r])
         ax.set_ylim([-1.5 * r, 1.5 * r])
@@ -252,7 +301,7 @@ class Global_ES_Sphere:
         ax.set_zticks([])
         ax.set_box_aspect((1, 1, 1))
         ax.view_init(elev=10, azim=-45)
-        ax.legend(loc="upper left")
+        self._apply_charcoal_legend_style(ax.legend(loc="upper left"), theme)
 
         return fig, ax
 
@@ -295,7 +344,9 @@ class Global_ES_Sphere:
             [],
             marker="o",
             s=55,
-            color="red",
+            color=CHARCOAL_THEME["trajectory"],
+            edgecolor=CHARCOAL_THEME["edge"],
+            linewidth=0.6,
             depthshade=False,
             zorder=12,
         )
