@@ -163,20 +163,29 @@ class MuJoCoVehicleVisualizer:
 """
 
     def _vehicle_body(self, playback_idx):
+        wheel_radius = self.vehicle_width / 3
+        wheel_half_width = self.vehicle_width / 12
+        fork_height = wheel_radius * 1.35
+        direction_length = self.vehicle_length * 0.55
+        axle_radius = wheel_radius * 0.22
+        hub_radius = wheel_radius * 0.32
         return f"""
     <body name="vehicle_{playback_idx}" pos="0 0 0.12">
       <freejoint name="vehicle_{playback_idx}_freejoint"/>
-      <geom name="chassis_{playback_idx}" type="box"
-            size="{self.vehicle_length / 2:.6f} {self.vehicle_width / 2:.6f} 0.08"
+      <geom name="chassis_{playback_idx}" type="cylinder"
+            euler="1.570796326795 0 0"
+            size="{wheel_radius:.6f} {wheel_half_width:.6f}"
             rgba="0.16 0.55 0.85 1"/>
-      <geom name="nose_{playback_idx}" type="box"
-            pos="{self.vehicle_length / 2 + 0.08:.6f} 0 0.04"
-            size="0.08 {self.vehicle_width / 3:.6f} 0.045"
+      <geom name="nose_{playback_idx}" type="capsule"
+            fromto="0 0 {fork_height:.6f} {direction_length:.6f} 0 {fork_height:.6f}"
+            size="{axle_radius:.6f}"
             rgba="0.05 0.15 0.20 1"/>
-      <geom name="wheel_fl_{playback_idx}" type="box" pos="0.22 0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
-      <geom name="wheel_fr_{playback_idx}" type="box" pos="0.22 -0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
-      <geom name="wheel_rl_{playback_idx}" type="box" pos="-0.22 0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
-      <geom name="wheel_rr_{playback_idx}" type="box" pos="-0.22 -0.23 -0.08" size="0.10 0.035 0.05" rgba="0.02 0.02 0.02 1"/>
+      <geom name="axle_{playback_idx}" type="cylinder"
+            euler="1.570796326795 0 0"
+            size="{axle_radius:.6f} {wheel_half_width * 1.35:.6f}"
+            rgba="0.02 0.02 0.02 1"/>
+      <geom name="hub_{playback_idx}" type="sphere"
+            size="{hub_radius:.6f}" rgba="0.96 0.96 0.96 1"/>
     </body>
 """
 

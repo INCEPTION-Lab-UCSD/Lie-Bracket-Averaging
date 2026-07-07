@@ -5,6 +5,7 @@ import matplotlib.cm as cm
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 from scipy.integrate import solve_ivp
 
 import hybrid_solution
@@ -461,6 +462,11 @@ class Oscillator_Synchronization:
         return cost
 
     def _cost_color_norm(self, cost, cost_gamma=1.8):
+        if cost_gamma is None:
+            return colors.Normalize(
+                vmin=0.0,
+                vmax=max(2.0, float(np.max(cost))),
+            )
         if cost_gamma <= 0:
             raise ValueError("cost_gamma must be positive")
 
@@ -487,6 +493,20 @@ class Oscillator_Synchronization:
             y_data.append(xi[1, i])
 
         return np.array(x_data), np.array(y_data)
+
+    def _wrapped_phase_difference(self, xi):
+        return np.angle(np.exp(1j * (xi[0] - xi[1])))
+
+    def _setup_phase_difference_axis(self, ax, t_start, t_end):
+        ax.set_title("Phase Difference", fontsize=11, pad=3)
+        ax.set_xlabel(r"$t$")
+        ax.set_ylabel(r"$\xi_1-\xi_2$")
+        ax.set_xlim(t_start, t_end)
+        ax.set_ylim(-np.pi, np.pi)
+        ax.set_yticks([-np.pi, 0.0, np.pi])
+        ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+        ax.axhline(0.0, color="black", linewidth=1, alpha=0.35)
+        ax.grid(True, alpha=0.3)
 
     def _mode_trace_data_until(self, t_current, t_final=None):
         if t_final is None:
@@ -518,11 +538,124 @@ class Oscillator_Synchronization:
 
         return z_values, t_values
 
+    def _mode_at_time(self, t):
+        mode = self.mode_schedule[0][1]
+        for switch_time, switch_mode in self.mode_schedule:
+            if t + 1e-12 < switch_time:
+                break
+            mode = switch_mode
+        return mode
+
+    def _alpha_for_mode(self, mode):
+        tau_index, _ = self.bijection(mode)
+        return np.asarray(self.tau[tau_index], dtype=float)
+
     def _mode_axis_ticks(self):
         max_mode = self.N_1 * self.N_2
         if max_mode <= 8:
             return list(range(1, max_mode + 1))
         return sorted(set(np.linspace(1, max_mode, 4, dtype=int)))
+
+    def _setup_unit_circle_axis(self, ax, oscillator_index):
+        theta = np.linspace(0.0, 2 * np.pi, 400)
+        circle = self.xi_to_cartesian(theta)
+        ax.plot(circle[:, 0], circle[:, 1], color="0.25", linewidth=1.6)
+        ax.axhline(0.0, color="0.82", linewidth=0.8, zorder=0)
+        ax.axvline(0.0, color="0.82", linewidth=0.8, zorder=0)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlim(-1.28, 1.28)
+        ax.set_ylim(-1.28, 1.28)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        return ax.set_title(rf"Oscillator {oscillator_index + 1}", fontsize=11)
+
+    def _setup_unit_circle_axes(self, axes, point_color="red"):
+        points = []
+        arrows = []
+        titles = []
+        for i, ax in enumerate(axes):
+            titles.append(self._setup_unit_circle_axis(ax, i))
+            point = ax.scatter(
+                [],
+                [],
+                color=point_color,
+                edgecolor="black",
+                linewidth=0.6,
+                s=70,
+                zorder=4,
+            )
+            arrow = ax.quiver(
+                [0.0],
+                [0.0],
+                [0.0],
+                [0.0],
+                angles="xy",
+                scale_units="xy",
+                scale=1,
+                width=0.014,
+                color="#1f77b4",
+                clip_on=False,
+                zorder=5,
+            )
+            points.append(point)
+            arrows.append(arrow)
+        self._add_current_direction_legend(axes[0])
+        return points, arrows, titles
+
+    @staticmethod
+    def _add_current_direction_legend(ax):
+        current_direction_handle = Line2D(
+            [0],
+            [0],
+            color="#1f77b4",
+            marker=">",
+            markersize=8,
+            linewidth=2,
+            label="current_direction",
+        )
+        ax.legend(
+            handles=[current_direction_handle],
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.18),
+            frameon=True,
+            fontsize=9,
+        )
+
+    def _current_direction_arrow(self, xi_value, direction_value):
+        tangent = np.array([np.sin(xi_value), np.cos(xi_value)])
+        return 0.42 * np.sign(direction_value) * tangent
+
+    def _update_unit_circle_artists(
+        self,
+        points,
+        arrows,
+        titles,
+        xi_values,
+        direction,
+        alpha,
+    ):
+        cartesian = self.xi_to_cartesian(xi_values)
+        for i, point in enumerate(points):
+            point.set_offsets([cartesian[i]])
+            arrow = self._current_direction_arrow(xi_values[i], direction[i])
+            arrows[i].set_offsets([cartesian[i]])
+            arrows[i].set_UVC([arrow[0]], [arrow[1]])
+            titles[i].set_text(
+                rf"Oscillator {i + 1}: $Control Direction = {alpha[i]:.0f}$"
+            )
+
+    def current_direction(self, state, mode):
+        tau_index, graph_index = self.bijection(mode)
+        return self.dynamics(0.0, state, tau_index, graph_index)[: self.r]
+
+    @staticmethod
+    def _hide_3d_axis_labels_and_ticks(ax):
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        ax.set_zlabel("")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
 
     def plot_solution(
         self,
@@ -630,10 +763,10 @@ class Oscillator_Synchronization:
         interval=40,
         repeat_delay=1200,
         trajectory_color="red",
-        cost_gamma=1.8,
+        cost_gamma=None,
     ):
         """
-        Animate z_1(t) and the wrapped two-oscillator phase trajectory.
+        Animate two unit-circle oscillator states and the wrapped phase trajectory.
         """
         if frame_step <= 0:
             raise ValueError("frame_step must be positive")
@@ -642,22 +775,26 @@ class Oscillator_Synchronization:
         if not 0 <= graph_index < self.N_2:
             raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
 
-        fig, (ax_mode, ax_phase) = plt.subplots(
-            1,
+        fig = plt.figure(figsize=(10, 5.5))
+        grid_spec = fig.add_gridspec(
+            3,
             2,
-            figsize=(8, 5),
-            gridspec_kw={"width_ratios": [1, 3]},
+            width_ratios=[1, 3.35],
+            height_ratios=[1, 1, 0.36],
+            hspace=0.78,
         )
+        ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
+        ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
+        ax_phase = fig.add_subplot(grid_spec[:2, 1])
+        ax_phase_diff = fig.add_subplot(grid_spec[2, 1])
 
         t_start = solution.t[0]
         t_end = solution.t[-1]
 
-        ax_mode.set_xlabel(r"$z_1(t)$")
-        ax_mode.set_ylabel(r"$t$")
-        ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
-        ax_mode.set_ylim(t_start, t_end)
-        ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.grid(True, alpha=0.3)
+        circle_points, circle_arrows, circle_titles = self._setup_unit_circle_axes(
+            (ax_circle_1, ax_circle_2),
+            point_color=trajectory_color,
+        )
 
         phase_max = 2 * np.pi
         xi_values = np.linspace(0.0, phase_max, n_grid)
@@ -682,8 +819,9 @@ class Oscillator_Synchronization:
 
         t_eval = np.linspace(t_start, t_end, n_time)
         xi = np.mod(solution(t_eval)[:2], phase_max)
+        phase_difference = self._wrapped_phase_difference(xi)
+        self._setup_phase_difference_axis(ax_phase_diff, t_start, t_end)
 
-        (mode_line,) = ax_mode.plot([], [], color="black", linewidth=4)
         (phase_line,) = ax_phase.plot(
             [],
             [],
@@ -706,12 +844,32 @@ class Oscillator_Synchronization:
             zorder=4,
             label=r"$\xi(0)$",
         )
+        (phase_difference_line,) = ax_phase_diff.plot(
+            [],
+            [],
+            color=trajectory_color,
+            linewidth=2.5,
+        )
+        (phase_difference_point,) = ax_phase_diff.plot(
+            [],
+            [],
+            marker="o",
+            color=trajectory_color,
+            markersize=5,
+        )
         ax_phase.legend(loc="upper left", bbox_to_anchor=(0.0, 1.1), ncol=2)
 
         colorbar = fig.colorbar(image, ax=ax_phase, fraction=0.046, pad=0.04)
         colorbar.set_ticks(np.linspace(norm.vmin, norm.vmax, 5))
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
-        fig.tight_layout()
+        fig.subplots_adjust(
+            left=0.06,
+            right=0.92,
+            top=0.90,
+            bottom=0.10,
+            wspace=0.28,
+            hspace=0.78,
+        )
 
         frame_indices = np.linspace(0, n_time - 1, frame_step, dtype=int)
         if frame_indices[-1] != n_time - 1:
@@ -720,14 +878,37 @@ class Oscillator_Synchronization:
         def update(frame_idx):
             idx = frame_indices[frame_idx] + 1
 
-            mode_x, mode_y = self._mode_trace_data_until(t_eval[idx - 1])
-            mode_line.set_data(mode_x, mode_y)
-
             phase_x, phase_y = self._wrapped_phase_line_data(xi[:, :idx])
             phase_line.set_data(phase_x, phase_y)
             current_point.set_offsets([[xi[0, idx - 1], xi[1, idx - 1]]])
+            phase_difference_line.set_data(t_eval[:idx], phase_difference[:idx])
+            phase_difference_point.set_data(
+                [t_eval[idx - 1]],
+                [phase_difference[idx - 1]],
+            )
+            t_current = t_eval[idx - 1]
+            mode = self._mode_at_time(t_current)
+            state = solution(t_current)
+            alpha = self._alpha_for_mode(mode)
+            direction = self.current_direction(state, mode)
+            self._update_unit_circle_artists(
+                circle_points,
+                circle_arrows,
+                circle_titles,
+                xi[:, idx - 1],
+                direction,
+                alpha,
+            )
 
-            return mode_line, phase_line, current_point, initial_point
+            return (
+                *circle_points,
+                *circle_arrows,
+                phase_line,
+                current_point,
+                initial_point,
+                phase_difference_line,
+                phase_difference_point,
+            )
 
         ani = animation.FuncAnimation(
             fig,
@@ -832,9 +1013,7 @@ class Oscillator_Synchronization:
         axis_limit = major_radius + minor_radius
 
         ax_torus.set_box_aspect((1, 1, minor_radius / axis_limit))
-        ax_torus.set_xlabel(r"$x$")
-        ax_torus.set_ylabel(r"$y$")
-        ax_torus.set_zlabel(r"$z$")
+        self._hide_3d_axis_labels_and_ticks(ax_torus)
         ax_torus.view_init(elev=elev, azim=azim)
         ax_torus.legend(loc="upper left")
 
@@ -862,10 +1041,10 @@ class Oscillator_Synchronization:
         surface_alpha=0.55,
         elev=25,
         azim=-60,
-        cost_gamma=1.8,
+        cost_gamma=None,
     ):
         """
-        Animate z_1(t) and the trajectory on a 3D torus embedding of T^2.
+        Animate two unit-circle oscillator states and the 3D torus trajectory.
         """
         if frame_step <= 0:
             raise ValueError("frame_step must be positive")
@@ -874,20 +1053,26 @@ class Oscillator_Synchronization:
         if not 0 <= graph_index < self.N_2:
             raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
 
-        fig = plt.figure(figsize=(9, 5))
-        grid_spec = fig.add_gridspec(1, 2, width_ratios=[1, 3])
-        ax_mode = fig.add_subplot(grid_spec[0, 0])
-        ax_torus = fig.add_subplot(grid_spec[0, 1], projection="3d")
+        fig = plt.figure(figsize=(10, 5.5))
+        grid_spec = fig.add_gridspec(
+            3,
+            2,
+            width_ratios=[1, 3.35],
+            height_ratios=[1, 1, 0.36],
+            hspace=0.78,
+        )
+        ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
+        ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
+        ax_torus = fig.add_subplot(grid_spec[:2, 1], projection="3d")
+        ax_phase_diff = fig.add_subplot(grid_spec[2, 1])
 
         t_start = solution.t[0]
         t_end = solution.t[-1]
 
-        ax_mode.set_xlabel(r"$z_1(t)$")
-        ax_mode.set_ylabel(r"$t$")
-        ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
-        ax_mode.set_ylim(t_start, t_end)
-        ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.grid(True, alpha=0.3)
+        circle_points, circle_arrows, circle_titles = self._setup_unit_circle_axes(
+            (ax_circle_1, ax_circle_2),
+            point_color=trajectory_color,
+        )
 
         phase_max = 2 * np.pi
         xi_values = np.linspace(0.0, phase_max, n_grid)
@@ -919,13 +1104,13 @@ class Oscillator_Synchronization:
         ax_torus.set_ylim(-axis_limit, axis_limit)
         ax_torus.set_zlim(-minor_radius, minor_radius)
         ax_torus.set_box_aspect((1, 1, minor_radius / axis_limit))
-        ax_torus.set_xlabel(r"$x$")
-        ax_torus.set_ylabel(r"$y$")
-        ax_torus.set_zlabel(r"$z$")
+        self._hide_3d_axis_labels_and_ticks(ax_torus)
         ax_torus.view_init(elev=elev, azim=azim)
 
         t_eval = np.linspace(t_start, t_end, n_time)
         xi = np.mod(solution(t_eval)[:2], phase_max)
+        phase_difference = self._wrapped_phase_difference(xi)
+        self._setup_phase_difference_axis(ax_phase_diff, t_start, t_end)
         traj_x, traj_y, traj_z = self.embed_torus_3d(
             xi[0],
             xi[1],
@@ -933,7 +1118,6 @@ class Oscillator_Synchronization:
             minor_radius=minor_radius,
         )
 
-        (mode_line,) = ax_mode.plot([], [], color="black", linewidth=4)
         (trajectory_line,) = ax_torus.plot(
             [],
             [],
@@ -959,14 +1143,40 @@ class Oscillator_Synchronization:
             depthshade=False,
             label=r"$\xi(0)$",
         )
+        (phase_difference_line,) = ax_phase_diff.plot(
+            [],
+            [],
+            color=trajectory_color,
+            linewidth=2.5,
+        )
+        (phase_difference_point,) = ax_phase_diff.plot(
+            [],
+            [],
+            marker="o",
+            color=trajectory_color,
+            markersize=5,
+        )
         ax_torus.legend(loc="upper left")
 
         mappable = cm.ScalarMappable(norm=norm, cmap=cm.gray)
         mappable.set_array(cost)
-        colorbar = fig.colorbar(mappable, ax=ax_torus, fraction=0.046, pad=0.04)
+        colorbar = fig.colorbar(
+            mappable,
+            ax=ax_torus,
+            fraction=0.035,
+            pad=0.12,
+            shrink=0.88,
+        )
 
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
-        fig.tight_layout()
+        fig.subplots_adjust(
+            left=0.06,
+            right=0.94,
+            top=0.90,
+            bottom=0.10,
+            wspace=0.28,
+            hspace=0.78,
+        )
 
         frame_indices = np.linspace(0, n_time - 1, frame_step, dtype=int)
         if frame_indices[-1] != n_time - 1:
@@ -975,12 +1185,6 @@ class Oscillator_Synchronization:
         def update(frame_idx):
             idx = frame_indices[frame_idx] + 1
 
-            mode_x, mode_y = self._mode_trace_data_until(
-                t_eval[idx - 1],
-                t_final=t_end,
-            )
-            mode_line.set_data(mode_x, mode_y)
-
             trajectory_line.set_data(traj_x[:idx], traj_y[:idx])
             trajectory_line.set_3d_properties(traj_z[:idx])
             current_point._offsets3d = (
@@ -988,8 +1192,34 @@ class Oscillator_Synchronization:
                 [traj_y[idx - 1]],
                 [traj_z[idx - 1]],
             )
+            phase_difference_line.set_data(t_eval[:idx], phase_difference[:idx])
+            phase_difference_point.set_data(
+                [t_eval[idx - 1]],
+                [phase_difference[idx - 1]],
+            )
+            t_current = t_eval[idx - 1]
+            mode = self._mode_at_time(t_current)
+            state = solution(t_current)
+            alpha = self._alpha_for_mode(mode)
+            direction = self.current_direction(state, mode)
+            self._update_unit_circle_artists(
+                circle_points,
+                circle_arrows,
+                circle_titles,
+                xi[:, idx - 1],
+                direction,
+                alpha,
+            )
 
-            return mode_line, trajectory_line, current_point, initial_point
+            return (
+                *circle_points,
+                *circle_arrows,
+                trajectory_line,
+                current_point,
+                initial_point,
+                phase_difference_line,
+                phase_difference_point,
+            )
 
         ani = animation.FuncAnimation(
             fig,

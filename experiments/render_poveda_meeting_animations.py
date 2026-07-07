@@ -17,7 +17,6 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "poveda_meeting_animations"
-DEFAULT_OSCILLATOR_ROOT = Path("/private/tmp/LBA-oscillator-animations")
 LOCAL_MODULES = {
     "global_es_sphere",
     "hybrid_solution",
@@ -185,15 +184,6 @@ def build_main_oscillator_animations(oscillator_module, output_dir: Path):
     oscillator = build_two_oscillator(oscillator_module)
     solution = oscillator.solve()
 
-    ani = oscillator.animate_solution(
-        solution,
-        n_grid=180,
-        n_time=900,
-        frame_step=180,
-        interval=40,
-    )
-    save_animation(ani, output_dir / "main_oscillator_phase_cost.mp4")
-
     ani = oscillator.animate_solution_3d(
         solution,
         n_grid=90,
@@ -202,6 +192,18 @@ def build_main_oscillator_animations(oscillator_module, output_dir: Path):
         interval=40,
     )
     save_animation(ani, output_dir / "main_oscillator_torus_3d.mp4")
+
+    oscillator = build_two_oscillator(oscillator_module)
+    hide_blue_current_direction_arrows(oscillator)
+    solution = oscillator.solve()
+    ani = oscillator.animate_solution_3d(
+        solution,
+        n_grid=90,
+        n_time=900,
+        frame_step=180,
+        interval=40,
+    )
+    save_animation(ani, output_dir / "main_oscillator_torus_3d_without_blue_arrow.mp4")
 
     multi_graph = build_multi_graph_oscillator(oscillator_module)
     multi_graph_solution = multi_graph.solve()
@@ -264,47 +266,17 @@ def hide_blue_current_direction_arrows(oscillator):
     oscillator._update_unit_circle_artists = update_without_arrows
 
 
-def build_oscillator_branch_animations(oscillator_module, output_dir: Path):
-    for hide_arrows, suffix in (
-        (False, "with_blue_arrow"),
-        (True, "without_blue_arrow"),
-    ):
-        oscillator = build_two_oscillator(oscillator_module)
-        if hide_arrows:
-            hide_blue_current_direction_arrows(oscillator)
-        solution = oscillator.solve()
-        ani = oscillator.animate_solution_3d(
-            solution,
-            n_grid=90,
-            n_time=900,
-            frame_step=180,
-            interval=40,
-        )
-        save_animation(ani, output_dir / f"oscillator_branch_torus_3d_{suffix}.mp4")
-
-    multi_graph = build_multi_graph_oscillator(oscillator_module)
-    multi_graph_solution = multi_graph.solve()
-    ani = multi_graph.animate_cartesian_components(
-        multi_graph_solution,
-        n_time=900,
-        frame_step=180,
-        interval=40,
-    )
-    save_animation(ani, output_dir / "oscillator_branch_cartesian_components.mp4")
-
-
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Render meeting-ready MP4 animations from the main and oscillator branches."
+        description="Render meeting-ready MP4 animations from the main codebase."
     )
     parser.add_argument("--main-root", type=Path, default=REPO_ROOT)
-    parser.add_argument("--oscillator-root", type=Path, default=DEFAULT_OSCILLATOR_ROOT)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--only",
         choices=("all", "vehicle-extras"),
         default="all",
-        help="Use vehicle-extras to render only the improved branch vehicle MP4.",
+        help="Use vehicle-extras to render only the additional vehicle MP4.",
     )
     return parser.parse_args()
 
@@ -314,19 +286,13 @@ def main():
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not args.oscillator_root.exists():
-        raise FileNotFoundError(f"oscillator branch worktree not found: {args.oscillator_root}")
-
     if args.only == "all":
         with code_root_modules(args.main_root) as modules:
             build_vehicle_animation(modules["vehicle"], output_dir)
             build_main_oscillator_animations(modules["oscillator"], output_dir)
             build_sphere_animation(modules["sphere"], output_dir)
 
-        with code_root_modules(args.oscillator_root) as modules:
-            build_oscillator_branch_animations(modules["oscillator"], output_dir)
-
-    with code_root_modules(args.oscillator_root) as modules:
+    with code_root_modules(args.main_root) as modules:
         build_vehicle_animation(
             modules["vehicle"],
             output_dir,
