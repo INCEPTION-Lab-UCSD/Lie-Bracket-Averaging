@@ -22,7 +22,7 @@ CHARCOAL_THEME = {
     "initial": "#E8EAED",
     "target": "#6EE7B7",
     "edge": "#111318",
-    "cmap": "cividis",
+    "cmap": "viridis",
 }
 
 
@@ -172,12 +172,19 @@ class Global_ES_Sphere:
     @staticmethod
     def _apply_charcoal_3d_style(ax, theme=CHARCOAL_THEME):
         ax.set_facecolor(theme["axes"])
+        ax.tick_params(colors=theme["text"])
+        ax.xaxis.label.set_color(theme["text"])
+        ax.yaxis.label.set_color(theme["text"])
+        ax.zaxis.label.set_color(theme["text"])
         for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
             axis.set_pane_color(to_rgba(theme["axes"], 1.0))
-            axis.pane.set_edgecolor(to_rgba(theme["grid"], 0.5))
-            axis.line.set_color(to_rgba(theme["grid"], 0.5))
-            axis._axinfo["grid"]["color"] = to_rgba(theme["grid"], 0.35)
-            axis._axinfo["axisline"]["color"] = to_rgba(theme["grid"], 0.5)
+            axis.pane.set_edgecolor(to_rgba(theme["axes"], 0.0))
+            axis.line.set_color(to_rgba(theme["axes"], 0.0))
+            axis._axinfo["grid"]["color"] = to_rgba(theme["axes"], 0.0)
+            axis._axinfo["grid"]["linewidth"] = 0.0
+            axis._axinfo["axisline"]["color"] = to_rgba(theme["axes"], 0.0)
+            axis._axinfo["axisline"]["linewidth"] = 0.0
+        ax.grid(False)
 
     @staticmethod
     def _apply_charcoal_legend_style(legend, theme=CHARCOAL_THEME):
@@ -243,9 +250,9 @@ class Global_ES_Sphere:
             zorder=1,
         )
 
-        trajectory_radius = 1.01 * r
+        trajectory_radius = 1.03 * r
         trajectory = trajectory_radius * x_points / r
-        marker_radius = 1.04 * r
+        marker_radius = 1.06 * r
         x0_marker = marker_radius * x0 / r
         x_target_marker = marker_radius * x_target / r
         ax.plot3D(
@@ -253,7 +260,7 @@ class Global_ES_Sphere:
             trajectory[1],
             trajectory[2],
             color=theme["trajectory"],
-            linewidth=1.8,
+            linewidth=2.4,
             zorder=10,
             label=r"$x(t)$",
         )
@@ -262,7 +269,7 @@ class Global_ES_Sphere:
             x0_marker[1],
             x0_marker[2],
             marker="o",
-            s=80,
+            s=100,
             color=theme["initial"],
             edgecolor=theme["edge"],
             linewidth=0.8,
@@ -287,23 +294,29 @@ class Global_ES_Sphere:
         mappable = cm.ScalarMappable(norm=norm, cmap=sphere_cmap)
         mappable.set_array(j_values)
         colorbar = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.04)
-        colorbar.set_label(r"$J(x)$", rotation=270, labelpad=18)
+        colorbar.set_label(r"Cost: $J(x)$", rotation=270, labelpad=18)
         self._apply_charcoal_colorbar_style(colorbar, theme)
 
+        ax.set_xlabel(r"$x_1$")
+        ax.set_ylabel(r"$x_2$")
+        ax.set_zlabel(r"$x_3$")
         ax.set_xlim([-1.5 * r, 1.5 * r])
         ax.set_ylim([-1.5 * r, 1.5 * r])
         ax.set_zlim([-1.5 * r, 1.5 * r])
+        ax.set_box_aspect((1, 1, 1), zoom=1.2)
+        ax.view_init(elev=10, azim=-45)
+        self._apply_charcoal_legend_style(ax.legend(loc="upper left"), theme)
+
+        return fig, ax
+
+    @staticmethod
+    def _hide_3d_axis_labels_and_ticks(ax):
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.set_zlabel("")
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_zticks([])
-        ax.set_box_aspect((1, 1, 1))
-        ax.view_init(elev=10, azim=-45)
-        self._apply_charcoal_legend_style(ax.legend(loc="upper left"), theme)
-
-        return fig, ax
 
     def animate_solution(
         self,
@@ -311,7 +324,7 @@ class Global_ES_Sphere:
         x_target=e3,
         r=1.0,
         n_grid=100,
-        n_time=500,
+        n_time=450,
         frame_step=200,
         interval=40,
         repeat_delay=1200,
@@ -329,10 +342,12 @@ class Global_ES_Sphere:
             n_time=n_time,
         )
 
+        self._hide_3d_axis_labels_and_ticks(ax)
+
         times = np.linspace(solution.t[0], solution.t[-1], n_time)
         x_points = solution(times)[:3]
         x_points = r * x_points / np.linalg.norm(x_points, axis=0)
-        trajectory = 1.01 * x_points
+        trajectory = 1.03 * x_points
 
         trajectory_line = ax.lines[-1]
         trajectory_line.set_data([], [])
@@ -343,7 +358,7 @@ class Global_ES_Sphere:
             [],
             [],
             marker="o",
-            s=55,
+            s=100,
             color=CHARCOAL_THEME["trajectory"],
             edgecolor=CHARCOAL_THEME["edge"],
             linewidth=0.6,
