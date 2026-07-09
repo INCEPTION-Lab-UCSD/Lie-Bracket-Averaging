@@ -139,7 +139,7 @@ class MuJoCoVehicleVisualizer:
              rgb1="1 1 1" rgb2="1 1 1"/>
     <texture name="grid" type="2d" builtin="checker" width="512" height="512"
              rgb1="0.96 0.96 0.96" rgb2="0.86 0.88 0.89"/>
-    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.12"/>
+    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.0"/>
   </asset>
   <worldbody>
     <light name="key" pos="{center[0]:.6f} {center[1]:.6f} 8" dir="0 0 -1"/>
@@ -343,11 +343,14 @@ class MuJoCoVehicleVisualizer:
         FigureCanvasAgg(fig)
         ax = fig.subplots()
         ax.set_facecolor("white")
-        image_artist = ax.imshow(np.full((height, width, 3), 255, dtype=np.uint8))
+        image_artist = ax.imshow(
+            np.full((height, width, 3), 255, dtype=np.uint8),
+            extent=(-0.5, width - 0.5, height - 0.5, -0.5),
+        )
         ax.axis("off")
         ax.text(
             18,
-            24,
+            48,
             self._mode_legend_text(),
             va="top",
             ha="left",
@@ -357,7 +360,7 @@ class MuJoCoVehicleVisualizer:
         )
         active_text = ax.text(
             18,
-            height - 24,
+            height - 48,
             "",
             va="bottom",
             ha="left",
@@ -378,7 +381,7 @@ class MuJoCoVehicleVisualizer:
                 for frame_t in times:
                     self._set_poses(frame_t)
                     renderer.update_scene(self.data, camera="overview")
-                    image_artist.set_data(renderer.render())
+                    image_artist.set_data(self._reframe_render(renderer.render()))
                     active_text.set_text(self._active_modes_text(frame_t))
                     writer.grab_frame()
         finally:
@@ -395,11 +398,14 @@ class MuJoCoVehicleVisualizer:
         FigureCanvasAgg(fig)
         ax = fig.subplots()
         ax.set_facecolor("white")
-        ax.imshow(image)
+        ax.imshow(
+            self._reframe_render(image),
+            extent=(-0.5, width - 0.5, height - 0.5, -0.5),
+        )
         ax.axis("off")
         ax.text(
             18,
-            24,
+            48,
             self._mode_legend_text(),
             va="top",
             ha="left",
@@ -409,7 +415,7 @@ class MuJoCoVehicleVisualizer:
         )
         ax.text(
             18,
-            height - 24,
+            height - 48,
             self._active_modes_text(t),
             va="bottom",
             ha="left",
@@ -419,6 +425,21 @@ class MuJoCoVehicleVisualizer:
         )
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         fig.savefig(output_path, dpi=100)
+
+    @staticmethod
+    def _reframe_render(image, zoom=1.10, upward_shift_fraction=0.05):
+        if zoom <= 1.0:
+            return image
+
+        height, width = image.shape[:2]
+        crop_height = int(round(height / zoom))
+        crop_width = int(round(width / zoom))
+        y_shift = int(round(height * upward_shift_fraction))
+        y0 = height // 2 - crop_height // 2 + y_shift
+        x0 = width // 2 - crop_width // 2
+        y0 = int(np.clip(y0, 0, height - crop_height))
+        x0 = int(np.clip(x0, 0, width - crop_width))
+        return image[y0 : y0 + crop_height, x0 : x0 + crop_width]
 
     @staticmethod
     def _text_box_style():

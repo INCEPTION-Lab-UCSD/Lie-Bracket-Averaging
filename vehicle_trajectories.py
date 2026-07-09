@@ -486,7 +486,7 @@ class VehicleTrajectorySimulation:
         vehicle_artists = [
             self._add_cartoon_vehicle(
                 ax_trajectory,
-                "gray",
+                "#ffffcc",
                 zorder=7 + i,
             )
             for i, _ in enumerate(trajectory_lines)

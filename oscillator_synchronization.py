@@ -79,7 +79,7 @@ def generate_random_mode_schedule(t_1, t_2, num_modes, eta_1=1.0, N_0=1, seed=No
     return schedule
 
 
-class Oscillator_Synchronization:
+class OscillatorSynchronization:
     def __init__(
         self,
         r,
@@ -352,11 +352,6 @@ class Oscillator_Synchronization:
             Full state [ξ_1, ..., ξ_r, τ_1, τ_2].
         graph_index : int
             Index k ∈ {0, ..., N_2 - 1} selecting the active graph G_k.
-        alpha : np.ndarray, shape (r,)
-            Control direction vector α ∈ {+1, -1}^r.
-        omega : np.ndarray, shape (r,) or None
-            Probing frequencies. If None, linearly spaced in [ω_1, ω_2].
-
         Returns
         -------
         np.ndarray, shape (r,)
@@ -402,13 +397,6 @@ class Oscillator_Synchronization:
         ----------
         state : np.ndarray, shape (r + 2,)
             Full state [ξ_1, ..., ξ_r, τ_1, τ_2].
-        graph_index : int
-            Index k selecting the active graph G_k.
-        alpha : np.ndarray, shape (r,)
-            Control direction vector.
-        omega : np.ndarray or None
-            Probing frequencies.
-
         Returns
         -------
         np.ndarray, shape (r + 2,)
@@ -426,16 +414,12 @@ class Oscillator_Synchronization:
     def solve(self, t=None, rtol=1e-6, atol=1e-8):
 
         t_end = self.t_2 if t is None else t
-        if self.mode_schedule is not None:
-            boundaries = [time for time, _ in self.mode_schedule]
-        else:
+        if self.mode_schedule is None:
             raise ValueError("mode schedule was not generated or inputted")
 
+        boundaries = [time for time, _ in self.mode_schedule]
         boundaries.append(t_end)
-        if self.mode_schedule is not None:
-            modes = [mode for _, mode in self.mode_schedule][: len(boundaries) - 1]
-        else:
-            raise ValueError("mode schedule was not generated or inputted")
+        modes = [mode for _, mode in self.mode_schedule][: len(boundaries) - 1]
 
         segment_solutions = []
         state_0 = self.state_0
@@ -690,7 +674,7 @@ class Oscillator_Synchronization:
             markersize=8,
             linewidth=2,
             linestyle="None",
-            label="Control Direction",
+            label="Oscillator Direction",
         )
         legend = ax.legend(
             handles=[control_direction_handle],
@@ -700,11 +684,11 @@ class Oscillator_Synchronization:
             fontsize=9,
         )
         if theme is not None:
-            Oscillator_Synchronization._apply_dark_legend_style(legend, theme)
+            OscillatorSynchronization._apply_dark_legend_style(legend, theme)
 
-    def _control_direction_arrow(self, xi_value, alpha_value):
+    def _current_direction_arrow(self, xi_value, direction_value):
         tangent = np.array([np.sin(xi_value), np.cos(xi_value)])
-        return 0.42 * np.sign(alpha_value) * tangent
+        return 0.42 * np.sign(direction_value) * tangent
 
     def _update_unit_circle_artists(
         self,
@@ -719,7 +703,7 @@ class Oscillator_Synchronization:
 
         for i, point in enumerate(points):
             point.set_offsets([cartesian[i]])
-            arrow = self._control_direction_arrow(xi_values[i], alpha[i])
+            arrow = self._current_direction_arrow(xi_values[i], direction[i])
             arrows[i].set_offsets([cartesian[i]])
             arrows[i].set_UVC([arrow[0]], [arrow[1]])
             titles[i].set_text(rf"Oscillator {i + 1}: Control Direction={alpha[i]:.0f}")
@@ -1446,9 +1430,7 @@ class Oscillator_Synchronization:
         ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
         ax_mode.set_ylim(solution.t[0], solution.t[-1])
         ax_mode.set_xticks(self._mode_axis_ticks())
-        # ax_mode.grid(True, which="major", alpha=0.35)
         ax_mode.minorticks_on()
-        # ax_mode.grid(True, which="minor", linestyle=":", alpha=0.25)
 
         for i in range(self.r):
             color = component_colors[i % len(component_colors)]
@@ -1502,9 +1484,7 @@ class Oscillator_Synchronization:
         ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
         ax_mode.set_ylim(solution.t[0], solution.t[-1])
         ax_mode.set_xticks(self._mode_axis_ticks())
-        # ax_mode.grid(True, which="major", alpha=0.35)
         ax_mode.minorticks_on()
-        # ax_mode.grid(True, which="minor", linestyle=":", alpha=0.25)
 
         ax_x1.set_ylabel(r"$x_1^i(t)$")
         ax_x2.set_ylabel(r"$x_2^i(t)$")
@@ -1626,3 +1606,6 @@ class Oscillator_Synchronization:
             seed=seed,
         )
         return self._validate_schedule(schedule)
+
+
+Oscillator_Synchronization = OscillatorSynchronization

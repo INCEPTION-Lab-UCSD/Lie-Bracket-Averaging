@@ -1,5 +1,7 @@
 import math
+from pathlib import Path
 
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -9,6 +11,9 @@ import vehicle_trajectories
 
 
 def run_vehicle_trajectory_simulation():
+    output_path = Path("Animations") / "vehicle_trajectory.mp4"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     epsilon = 1 / np.sqrt(10 * np.pi)
     t_1 = 0.0
     t_2 = 15.0
@@ -64,8 +69,11 @@ def run_vehicle_trajectory_simulation():
     # )
 
     ani = vehicle_trajectory_simulation_converge.animate_solution(
-        [hybrid_converge_solution, hybrid_diverge_solution], frame_step=500
+        [hybrid_converge_solution, hybrid_diverge_solution],
+        frame_step=500,
+        save_path=str(output_path),
     )
+    print(f"Saved animation to {output_path}")
     plt.show()
 
 
@@ -163,6 +171,6 @@ def run_global_es_sphere():
 
 if __name__ == "__main__":
     # run_vehicle_trajectory_simulation()
-    # run_oscillator_synchronization_simulation()
+    run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()
-    run_global_es_sphere()
+    # run_global_es_sphere()

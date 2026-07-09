@@ -303,7 +303,7 @@ class Global_ES_Sphere:
         ax.set_xlim([-1.5 * r, 1.5 * r])
         ax.set_ylim([-1.5 * r, 1.5 * r])
         ax.set_zlim([-1.5 * r, 1.5 * r])
-        ax.set_box_aspect((1, 1, 1), zoom=1.2)
+        ax.set_box_aspect((1, 1, 1), zoom=1.0)
         ax.view_init(elev=10, azim=-45)
         self._apply_charcoal_legend_style(ax.legend(loc="upper left"), theme)
 
