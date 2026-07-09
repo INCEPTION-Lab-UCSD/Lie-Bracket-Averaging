@@ -1,4 +1,4 @@
-# Lie Bracket Averaging
+# Lie-Bracket Averaging
 
 ## MuJoCo vehicle visualization
 
@@ -44,7 +44,7 @@ Mode 3: Normal Measurements (blue)
 - M. Abdelgalil, J. Poveda [**On Lie-Bracket Averaging for Hybrid Dynamical Systems With Applications to Model-Free Control and Optimization**](https://ieeexplore.ieee.org/document/10839324). IEEE Transactions on Automatic Control, 2025.
 
 ````bibtex
-@article{10839324,
+@article{abdelgalil2025lie-bracket,
   title={On Lie-Bracket Averaging for Hybrid Dynamical Systems With Applications to Model-Free Control and Optimization},
   author={Abdelgalil, Mahmoud and Poveda, Jorge I.},
   journal={IEEE Transactions on Automatic Control},
