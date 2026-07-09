@@ -38,3 +38,24 @@ Mode 1: Reversed Measurements (red)
 Mode 2: Blind to Measurements (orange)
 Mode 3: Normal Measurements (blue)
 ```
+
+## Citation
+
+- M. Abdelgalil, J. Poveda [**On Lie-Bracket Averaging for Hybrid Dynamical Systems With Applications to Model-Free Control and Optimization**](https://ieeexplore.ieee.org/document/10839324). IEEE Transactions on Automatic Control, 2025.
+
+````bibtex
+@article{10839324,
+  title={On Lie-Bracket Averaging for Hybrid Dynamical Systems With Applications to Model-Free Control and Optimization},
+  author={Abdelgalil, Mahmoud and Poveda, Jorge I.},
+  journal={IEEE Transactions on Automatic Control},
+  year={2025},
+  volume={70},
+  number={7},
+  pages={4655-4670},
+  publisher={IEEE}
+  }```
+````
+
+## License
+
+[MIT License](LICENSE)
