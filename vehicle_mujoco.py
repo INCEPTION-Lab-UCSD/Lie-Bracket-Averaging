@@ -28,6 +28,15 @@ MODE_COLOR_NAMES = {
 }
 
 TARGET_CENTER_SIZE = 0.10
+VEHICLE_TRAJECTORY_ALPHA = 1.00
+VEHICLE_TRAJECTORY_Z = 0.095
+VEHICLE_TRAJECTORY_RADIUS = 0.030
+LEVEL_CURVE_COUNT = 10
+LEVEL_CURVE_SEGMENTS = 144
+LEVEL_PATCH_Z = 0.014
+LEVEL_PATCH_ALPHA = 0.54
+LEVEL_CURVE_Z = 0.032
+LEVEL_CURVE_RADIUS = 0.008
 
 
 @dataclass
@@ -64,7 +73,7 @@ class MuJoCoVehicleVisualizer:
         self.playbacks = list(playbacks)
         if not self.playbacks:
             raise ValueError("playbacks must contain at least one VehiclePlayback")
-        print(playbacks[0])
+
         self.x_p_goal = np.asarray(x_p_goal, dtype=float)
         self.target_radius = float(target_radius)
         self.trail_samples = int(trail_samples)
@@ -103,13 +112,17 @@ class MuJoCoVehicleVisualizer:
         all_xy = np.concatenate([samples[:2] for samples in self._samples], axis=1)
         goal = self.x_p_goal
 
-        min_xy = np.minimum(np.min(all_xy, axis=1), goal) - 2.0
-        max_xy = np.maximum(np.max(all_xy, axis=1), goal) + 2.0
+        buffer = 2.0
+        min_xy = np.minimum(np.min(all_xy, axis=1), goal) - buffer
+        max_xy = np.maximum(np.max(all_xy, axis=1), goal) + buffer
         center = 0.5 * (min_xy + max_xy)
         span = np.maximum(max_xy - min_xy, 4.0)
         floor_size = max(span) / 2.0 + 1.0
         camera_distance = max(span) * 1.15
         camera_height = max(span) * 0.85 + 3.0
+        floor_min_xy = center - floor_size
+        floor_max_xy = center + floor_size
+        level_assets, level_geoms = self._level_sets(floor_min_xy, floor_max_xy)
 
         trail_geoms = "\n".join(
             self._trail_geoms(playback_idx, samples)
@@ -127,11 +140,11 @@ class MuJoCoVehicleVisualizer:
         return f"""
 <mujoco model="vehicle_trajectory_visualization">
   <compiler angle="radian"/>
-  <option timestep="0.01" gravity="0 0 -9.81"/>
+  <option timestep="0.01"/>
   <visual>
     <headlight ambient="0.70 0.70 0.70" diffuse="0.55 0.55 0.55" specular="0.12 0.12 0.12"/>
     <rgba haze="1 1 1 1"/>
-    <global offwidth="1280" offheight="720"/>
+    <global offwidth="1920" offheight="1080"/>
     <map znear="0.01" zfar="100"/>
   </visual>
   <asset>
@@ -140,14 +153,16 @@ class MuJoCoVehicleVisualizer:
     <texture name="grid" type="2d" builtin="checker" width="512" height="512"
              rgb1="0.96 0.96 0.96" rgb2="0.86 0.88 0.89"/>
     <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.0"/>
+{level_assets}
   </asset>
   <worldbody>
-    <light name="key" pos="{center[0]:.6f} {center[1]:.6f} 8" dir="0 0 -1"/>
+
     <camera name="overview"
             pos="{center[0]:.6f} {center[1] - camera_distance:.6f} {camera_height:.6f}"
             xyaxes="1 0 0 0 0.58 0.82"/>
     <geom name="floor" type="plane" pos="{center[0]:.6f} {center[1]:.6f} 0"
           size="{floor_size:.6f} {floor_size:.6f} 0.1" material="grid"/>
+{level_geoms}
     <geom name="target" type="cylinder"
           pos="{goal[0]:.6f} {goal[1]:.6f} 0.012"
           size="{self.target_radius:.6f} 0.012"
@@ -206,11 +221,15 @@ class MuJoCoVehicleVisualizer:
                 continue
             mode = int(round(samples[5, sample_idx]))
             color = MODE_COLORS.get(mode, MODE_COLORS[3])
-            rgba = " ".join(f"{value:.3f}" for value in color[:3]) + " 0.82"
+            rgba = (
+                " ".join(f"{value:.3f}" for value in color[:3])
+                + f" {VEHICLE_TRAJECTORY_ALPHA:.3f}"
+            )
             geoms.append(
                 f'    <geom name="trail_{playback_idx}_{sample_idx}" type="capsule" '
-                f'fromto="{x0:.6f} {y0:.6f} 0.055 {x1:.6f} {y1:.6f} 0.055" '
-                f'size="0.025" rgba="{rgba}"/>'
+                f'fromto="{x0:.6f} {y0:.6f} {VEHICLE_TRAJECTORY_Z:.6f} '
+                f'{x1:.6f} {y1:.6f} {VEHICLE_TRAJECTORY_Z:.6f}" '
+                f'size="{VEHICLE_TRAJECTORY_RADIUS:.6f}" rgba="{rgba}"/>'
             )
         return "\n".join(geoms)
 
@@ -254,6 +273,168 @@ class MuJoCoVehicleVisualizer:
                 ]
             )
         mujoco.mj_forward(self.model, self.data)
+
+    def _level_sets(self, min_xy, max_xy):
+        min_xy = np.asarray(min_xy, dtype=float)
+        max_xy = np.asarray(max_xy, dtype=float)
+        corners = np.array(
+            [
+                [min_xy[0], min_xy[1]],
+                [min_xy[0], max_xy[1]],
+                [max_xy[0], min_xy[1]],
+                [max_xy[0], max_xy[1]],
+            ]
+        )
+        max_radius = float(np.max(np.linalg.norm(corners - self.x_p_goal, axis=1)))
+        if max_radius <= 0.0:
+            return "", ""
+
+        level_radii = np.sqrt(np.linspace(0.0, max_radius**2, LEVEL_CURVE_COUNT + 1))
+        angles = np.linspace(0.0, 2.0 * math.pi, LEVEL_CURVE_SEGMENTS + 1)
+        circle_offsets = np.column_stack((np.cos(angles), np.sin(angles)))
+
+        assets = []
+        geoms = []
+        for level_idx in range(LEVEL_CURVE_COUNT):
+            inner_radius = level_radii[level_idx]
+            outer_radius = level_radii[level_idx + 1]
+            vertices, faces = self._level_patch_mesh(
+                min_xy,
+                max_xy,
+                inner_radius,
+                outer_radius,
+                circle_offsets,
+            )
+            if vertices:
+                vertex_attr = " ".join(f"{x:.6f} {y:.6f} 0" for x, y in vertices)
+                face_attr = " ".join(f"{i0} {i1} {i2}" for i0, i1, i2 in faces)
+                assets.append(
+                    f'    <mesh name="level_patch_{level_idx}" '
+                    f'inertia="shell" vertex="{vertex_attr}" face="{face_attr}"/>'
+                )
+                rgba = self._level_patch_rgba(level_idx)
+                geoms.append(
+                    f'    <geom name="level_patch_{level_idx}" type="mesh" '
+                    f'mesh="level_patch_{level_idx}" pos="0 0 {LEVEL_PATCH_Z:.6f}" '
+                    f'rgba="{rgba}" contype="0" conaffinity="0"/>'
+                )
+
+        for level_idx, radius in enumerate(level_radii[1:-1], start=1):
+            points = self.x_p_goal + radius * circle_offsets
+            rgba = self._level_curve_rgba(level_idx)
+            for segment_idx in range(LEVEL_CURVE_SEGMENTS):
+                p0 = points[segment_idx]
+                p1 = points[segment_idx + 1]
+                midpoint = 0.5 * (p0 + p1)
+                if np.any(midpoint < min_xy) or np.any(midpoint > max_xy):
+                    continue
+                geoms.append(
+                    f'    <geom name="level_curve_{level_idx}_{segment_idx}" '
+                    f'type="capsule" '
+                    f'fromto="{p0[0]:.6f} {p0[1]:.6f} {LEVEL_CURVE_Z:.6f} '
+                    f'{p1[0]:.6f} {p1[1]:.6f} {LEVEL_CURVE_Z:.6f}" '
+                    f'size="{LEVEL_CURVE_RADIUS:.6f}" rgba="{rgba}" '
+                    f'contype="0" conaffinity="0"/>'
+                )
+        return "\n".join(assets), "\n".join(geoms)
+
+    def _level_patch_mesh(
+        self,
+        min_xy,
+        max_xy,
+        inner_radius,
+        outer_radius,
+        circle_offsets,
+    ):
+        vertices = []
+        faces = []
+        for segment_idx in range(LEVEL_CURVE_SEGMENTS):
+            inner_0 = self.x_p_goal + inner_radius * circle_offsets[segment_idx]
+            inner_1 = self.x_p_goal + inner_radius * circle_offsets[segment_idx + 1]
+            outer_0 = self.x_p_goal + outer_radius * circle_offsets[segment_idx]
+            outer_1 = self.x_p_goal + outer_radius * circle_offsets[segment_idx + 1]
+            if inner_radius <= 1e-9:
+                patch = [self.x_p_goal, outer_0, outer_1]
+            else:
+                patch = [inner_0, outer_0, outer_1, inner_1]
+            clipped_patch = self._clip_polygon_to_bounds(patch, min_xy, max_xy)
+            if len(clipped_patch) < 3:
+                continue
+
+            start_idx = len(vertices)
+            vertices.extend(
+                (float(point[0]), float(point[1])) for point in clipped_patch
+            )
+            for point_idx in range(1, len(clipped_patch) - 1):
+                faces.append(
+                    (start_idx, start_idx + point_idx, start_idx + point_idx + 1)
+                )
+        return vertices, faces
+
+    @staticmethod
+    def _clip_polygon_to_bounds(polygon, min_xy, max_xy):
+        clipped = [np.asarray(point, dtype=float) for point in polygon]
+        for axis, lower, keep_greater in (
+            (0, min_xy[0], True),
+            (0, max_xy[0], False),
+            (1, min_xy[1], True),
+            (1, max_xy[1], False),
+        ):
+            clipped = MuJoCoVehicleVisualizer._clip_polygon_against_edge(
+                clipped,
+                axis,
+                lower,
+                keep_greater,
+            )
+            if not clipped:
+                break
+        return clipped
+
+    @staticmethod
+    def _clip_polygon_against_edge(polygon, axis, boundary, keep_greater):
+        clipped = []
+        previous = polygon[-1]
+        previous_inside = (
+            previous[axis] >= boundary if keep_greater else previous[axis] <= boundary
+        )
+        for current in polygon:
+            current_inside = (
+                current[axis] >= boundary if keep_greater else current[axis] <= boundary
+            )
+            if current_inside != previous_inside:
+                clipped.append(
+                    MuJoCoVehicleVisualizer._edge_intersection(
+                        previous,
+                        current,
+                        axis,
+                        boundary,
+                    )
+                )
+            if current_inside:
+                clipped.append(current)
+            previous = current
+            previous_inside = current_inside
+        return clipped
+
+    @staticmethod
+    def _edge_intersection(p0, p1, axis, boundary):
+        delta = p1[axis] - p0[axis]
+        if abs(delta) < 1e-12:
+            return p0.copy()
+        alpha = (boundary - p0[axis]) / delta
+        return p0 + alpha * (p1 - p0)
+
+    @staticmethod
+    def _level_patch_rgba(level_idx):
+        fade = level_idx / max(LEVEL_CURVE_COUNT - 1, 1)
+        gray = 0.90 - 0.52 * fade
+        return f"{gray:.3f} {gray:.3f} {gray:.3f} {LEVEL_PATCH_ALPHA:.3f}"
+
+    @staticmethod
+    def _level_curve_rgba(level_idx):
+        fade = level_idx / max(LEVEL_CURVE_COUNT - 1, 1)
+        gray = 0.58 - 0.22 * fade
+        return f"{gray:.3f} {gray:.3f} {gray:.3f} 0.62"
 
     def run(self, fps=60.0, realtime_factor=1.0):
         import mujoco.viewer
@@ -553,9 +734,9 @@ def main():
     parser.add_argument("--fps", type=float, default=60.0)
     parser.add_argument("--realtime-factor", type=float, default=1.0)
     parser.add_argument("--video-fps", type=float, default=24.0)
-    parser.add_argument("--video-duration", type=float, default=10.0)
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--video-duration", type=float, default=20.0)
+    parser.add_argument("--width", type=int, default=1920)
+    parser.add_argument("--height", type=int, default=1080)
     args = parser.parse_args()
     if args.snapshot is not None and args.video is not None:
         parser.error("use either --snapshot or --video, not both")
