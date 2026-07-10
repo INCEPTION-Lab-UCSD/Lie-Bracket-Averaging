@@ -2,6 +2,7 @@ import math
 
 import matplotlib.animation as animation
 import matplotlib.patches as patches
+import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
 import numpy as np
@@ -196,6 +197,20 @@ class VehicleTrajectorySimulation:
             zorder=2,
             label="Goal",
         )
+        ax_trajectory.text(
+            self.x_p_goal[0],
+            self.x_p_goal[1],
+            "Goal",
+            ha="center",
+            va="center",
+            fontsize=12,
+            fontweight="bold",
+            color="#102010",
+            zorder=6,
+            path_effects=[
+                path_effects.withStroke(linewidth=2.0, foreground="white", alpha=0.85)
+            ],
+        )
         ax_trajectory.add_patch(target_circle)
         for solution in HybridSolutions:
             x_1 = solution.y[0]
@@ -235,32 +250,6 @@ class VehicleTrajectorySimulation:
             for mode in (3, 1, 2)
         ]
 
-        legend_handles.append(
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="lime",  # no line
-                markerfacecolor="lime",
-                markeredgecolor="black",
-                markersize=13,
-                linestyle="None",
-                label="Goal",
-            )
-        )
-
-        legend_handles.append(
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="black",
-                markerfacecolor="black",
-                markersize=13,
-                linestyle="None",
-                label="Start Position",
-            )
-        )
         ax_trajectory.legend(
             handles=legend_handles,
             loc="upper left",

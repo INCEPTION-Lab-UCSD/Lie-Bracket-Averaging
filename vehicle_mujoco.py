@@ -79,6 +79,8 @@ class MuJoCoVehicleVisualizer:
         self.trail_samples = int(trail_samples)
         self.vehicle_length = float(vehicle_length)
         self.vehicle_width = float(vehicle_width)
+        self._level_cost_min = 0.0
+        self._level_cost_max = 0.0
 
         self._samples = [
             self._sample_path(playback.solution, self.trail_samples)
@@ -288,6 +290,7 @@ class MuJoCoVehicleVisualizer:
         max_radius = float(np.max(np.linalg.norm(corners - self.x_p_goal, axis=1)))
         if max_radius <= 0.0:
             return "", ""
+        self._level_cost_max = 0.5 * max_radius**2
 
         level_radii = np.sqrt(np.linspace(0.0, max_radius**2, LEVEL_CURVE_COUNT + 1))
         angles = np.linspace(0.0, 2.0 * math.pi, LEVEL_CURVE_SEGMENTS + 1)
@@ -426,9 +429,13 @@ class MuJoCoVehicleVisualizer:
 
     @staticmethod
     def _level_patch_rgba(level_idx):
-        fade = level_idx / max(LEVEL_CURVE_COUNT - 1, 1)
-        gray = 0.90 - 0.52 * fade
+        gray = MuJoCoVehicleVisualizer._level_patch_gray(level_idx)
         return f"{gray:.3f} {gray:.3f} {gray:.3f} {LEVEL_PATCH_ALPHA:.3f}"
+
+    @staticmethod
+    def _level_patch_gray(level_idx):
+        fade = level_idx / max(LEVEL_CURVE_COUNT - 1, 1)
+        return 0.90 - 0.52 * fade
 
     @staticmethod
     def _level_curve_rgba(level_idx):
@@ -549,6 +556,7 @@ class MuJoCoVehicleVisualizer:
             color="black",
             bbox=self._text_box_style(),
         )
+        self._add_cost_colorbar_overlay(ax, width, height)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
         writer = animation.FFMpegWriter(
@@ -604,8 +612,121 @@ class MuJoCoVehicleVisualizer:
             color="black",
             bbox=self._text_box_style(),
         )
+        self._add_cost_colorbar_overlay(ax, width, height)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         fig.savefig(output_path, dpi=100)
+
+    def _add_cost_colorbar_overlay(self, ax, width, height):
+        from matplotlib.patches import Rectangle
+
+        if self._level_cost_max <= self._level_cost_min:
+            return
+
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        bar_height = max(160.0, height * 0.34)
+        bar_width = max(18.0, width * 0.018)
+        right_margin = max(52.0, width * 0.045)
+        bar_x1 = width - right_margin
+        bar_x0 = bar_x1 - bar_width
+        bar_y0 = max(94.0, height * 0.17)
+        bar_y1 = bar_y0 + bar_height
+
+        tick_label_width = max(44.0, width * 0.045)
+        box_pad_x = 14.0
+        box_x0 = bar_x0 - tick_label_width - box_pad_x
+        box_y0 = bar_y0 - 34.0
+        box_width = tick_label_width + bar_width + 2.0 * box_pad_x
+        box_height = bar_height + 54.0
+        ax.add_patch(
+            Rectangle(
+                (box_x0, box_y0),
+                box_width,
+                box_height,
+                facecolor="white",
+                alpha=0.82,
+                edgecolor="0.35",
+                linewidth=0.9,
+                zorder=6,
+            )
+        )
+
+        grays = np.array(
+            [
+                self._level_patch_gray(level_idx)
+                for level_idx in reversed(range(LEVEL_CURVE_COUNT))
+            ]
+        ).reshape(LEVEL_CURVE_COUNT, 1)
+        ax.imshow(
+            grays,
+            cmap="gray",
+            vmin=0.0,
+            vmax=1.0,
+            interpolation="nearest",
+            extent=(bar_x0, bar_x1, bar_y1, bar_y0),
+            zorder=7,
+        )
+        ax.add_patch(
+            Rectangle(
+                (bar_x0, bar_y0),
+                bar_width,
+                bar_height,
+                fill=False,
+                edgecolor="0.25",
+                linewidth=0.9,
+                zorder=8,
+            )
+        )
+
+        ax.text(
+            0.5 * (bar_x0 + bar_x1),
+            bar_y0 - 12.0,
+            r"$J(x_p)$",
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            color="black",
+            zorder=9,
+        )
+
+        tick_x0 = bar_x0 - 5.0
+        tick_x1 = bar_x0
+        for value, y in (
+            (self._level_cost_max, bar_y0),
+            (
+                0.5 * (self._level_cost_min + self._level_cost_max),
+                0.5 * (bar_y0 + bar_y1),
+            ),
+            (self._level_cost_min, bar_y1),
+        ):
+            ax.plot(
+                [tick_x0, tick_x1],
+                [y, y],
+                color="0.2",
+                linewidth=0.8,
+                zorder=9,
+            )
+            ax.text(
+                tick_x0 - 4.0,
+                y,
+                self._format_cost_tick(value),
+                ha="right",
+                va="center",
+                fontsize=9,
+                color="black",
+                zorder=9,
+            )
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+
+    @staticmethod
+    def _format_cost_tick(value):
+        value = float(value)
+        if abs(value) >= 10.0:
+            return f"{value:.0f}"
+        if abs(value) >= 1.0:
+            return f"{value:.1f}"
+        return f"{value:.2f}"
 
     @staticmethod
     def _reframe_render(image, zoom=1.10, upward_shift_fraction=0.05):

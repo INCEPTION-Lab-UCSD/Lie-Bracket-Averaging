@@ -71,7 +71,7 @@ def run_vehicle_trajectory_simulation():
     ani = vehicle_trajectory_simulation_converge.animate_solution(
         [hybrid_converge_solution, hybrid_diverge_solution],
         frame_step=500,
-        save_path=str(output_path),
+        # save_path=str(output_path),
     )
     print(f"Saved animation to {output_path}")
     plt.show()
@@ -170,7 +170,7 @@ def run_global_es_sphere():
 
 
 if __name__ == "__main__":
-    # run_vehicle_trajectory_simulation()
-    run_oscillator_synchronization_simulation()
+    run_vehicle_trajectory_simulation()
+    # run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()
     # run_global_es_sphere()
