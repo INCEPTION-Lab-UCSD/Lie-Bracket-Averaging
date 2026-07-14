@@ -25,6 +25,26 @@ CHARCOAL_THEME = {
     "cmap": "viridis",
 }
 
+MODE_VIEW_LABELS = {
+    1: "Mode 1",
+    2: "Mode 2",
+}
+
+SPHERE_FIGSIZE = (9.5, 7.2)
+SPHERE_AXIS_PADDING = 1.12
+TRAJECTORY_LINEWIDTH = 0.9
+TRAJECTORY_OUTLINE_LINEWIDTH = TRAJECTORY_LINEWIDTH + 0.45
+TRAJECTORY_OUTLINE_ALPHA = 0.42
+TRAJECTORY_RENDERING = {
+    "antialiased": True,
+    "solid_capstyle": "round",
+    "solid_joinstyle": "round",
+    "snap": False,
+}
+ANIMATION_N_TIME = 1200
+ANIMATION_SAVE_DPI = 220
+ANIMATION_BITRATE = 6000
+
 
 class Global_ES_Sphere:
     def __init__(self, x0, delta, omega, alpha, kappa, epsilon, t_1, t_2):
@@ -203,6 +223,84 @@ class Global_ES_Sphere:
         colorbar.ax.yaxis.label.set_color(theme["text"])
         colorbar.outline.set_edgecolor(theme["grid"])
 
+    @staticmethod
+    def _apply_charcoal_2d_style(ax, theme=CHARCOAL_THEME):
+        ax.set_facecolor(theme["axes"])
+        ax.tick_params(colors=theme["text"])
+        ax.xaxis.label.set_color(theme["text"])
+        ax.yaxis.label.set_color(theme["text"])
+        for spine in ax.spines.values():
+            spine.set_color(theme["grid"])
+        ax.grid(True, color=theme["grid"], alpha=0.35, linewidth=0.8)
+
+    def _plot_mode_panel(self, ax_mode, times, q_values, theme=CHARCOAL_THEME):
+        self._apply_charcoal_2d_style(ax_mode, theme)
+        ax_mode.step(
+            times,
+            q_values,
+            where="post",
+            color=theme["text"],
+            linewidth=1.8,
+        )
+        ax_mode.set_xlabel(r"$t$")
+
+        ax_mode.set_yticks([1, 2])
+        ax_mode.set_yticklabels([MODE_VIEW_LABELS[1], MODE_VIEW_LABELS[2]])
+        ax_mode.set_ylim(0.7, 2.3)
+        ax_mode.set_xlim(times[0], times[-1])
+        ax_mode.margins(x=0)
+
+    @staticmethod
+    def _camera_facing_mask(ax, points):
+        """Return the points on the camera-facing hemisphere."""
+        points = np.asarray(points, dtype=float)
+        if points.ndim == 1:
+            points = points[:, None]
+
+        elev = np.deg2rad(ax.elev)
+        azim = np.deg2rad(ax.azim)
+        view_direction = np.array(
+            [
+                np.cos(elev) * np.cos(azim),
+                np.cos(elev) * np.sin(azim),
+                np.sin(elev),
+            ]
+        )
+        return view_direction @ points >= -1e-12
+
+    def _update_sphere_visibility(self, fig, ax):
+        state = getattr(fig, "_global_es_visibility_state", None)
+        if state is None:
+            return
+
+        trajectory = state["trajectory"][:, : state["trajectory_count"]]
+        visible_trajectory = trajectory.copy()
+        visible_trajectory[:, ~self._camera_facing_mask(ax, trajectory)] = np.nan
+        for line in state["trajectory_lines"]:
+            line.set_data(visible_trajectory[0], visible_trajectory[1])
+            line.set_3d_properties(visible_trajectory[2])
+
+        for marker in state["markers"]:
+            is_visible = (
+                marker["active"] and self._camera_facing_mask(ax, marker["point"])[0]
+            )
+            marker["artist"].set_visible(bool(is_visible))
+
+        state["view"] = (ax.elev, ax.azim, ax.roll)
+
+    def _connect_sphere_visibility_updates(self, fig, ax):
+        def refresh_after_view_change(event):
+            if event.canvas is not fig.canvas:
+                return
+            state = fig._global_es_visibility_state
+            view = (ax.elev, ax.azim, ax.roll)
+            if view == state["view"]:
+                return
+            self._update_sphere_visibility(fig, ax)
+            fig.canvas.draw_idle()
+
+        fig.canvas.mpl_connect("draw_event", refresh_after_view_change)
+
     def plot_sphere_simulation(
         self,
         solution,
@@ -216,7 +314,9 @@ class Global_ES_Sphere:
             x_target = r * x_target / np.linalg.norm(x_target)
 
         times = np.linspace(solution.t[0], solution.t[-1], n_time)
-        x_points = solution(times)[:3]
+        states = solution(times)
+        x_points = states[:3]
+        q_values = np.rint(states[3]).astype(int)
         x_points = r * x_points / np.linalg.norm(x_points, axis=0)
         x0 = x_points[:, 0]
 
@@ -232,9 +332,24 @@ class Global_ES_Sphere:
         sphere_cmap = plt.get_cmap(theme["cmap"])
         facecolors = sphere_cmap(norm(j_values))
 
-        fig = plt.figure(figsize=(8, 6))
+        fig = plt.figure(figsize=SPHERE_FIGSIZE)
         fig.patch.set_facecolor(theme["figure"])
-        ax = fig.add_subplot(111, projection="3d")
+        grid_spec = fig.add_gridspec(
+            2,
+            4,
+            width_ratios=[1.0, 6.2, 0.22, 1.0],
+            height_ratios=[7.4, 0.8],
+            hspace=0.04,
+            wspace=0.08,
+            left=0.03,
+            right=0.97,
+            top=0.990,
+            bottom=0.055,
+        )
+        ax = fig.add_subplot(grid_spec[0, 1], projection="3d", computed_zorder=False)
+        ax_colorbar = fig.add_subplot(grid_spec[0, 2])
+        ax_mode = fig.add_subplot(grid_spec[1, 1])
+        ax.set_anchor("C")
         self._apply_charcoal_3d_style(ax, theme)
         ax.plot_surface(
             x,
@@ -250,42 +365,51 @@ class Global_ES_Sphere:
             zorder=1,
         )
 
-        trajectory_radius = 1.03 * r
-        trajectory = trajectory_radius * x_points / r
-        marker_radius = 1.06 * r
-        x0_marker = marker_radius * x0 / r
-        x_target_marker = marker_radius * x_target / r
-        ax.plot3D(
+        trajectory = x_points
+        (trajectory_outline,) = ax.plot3D(
+            trajectory[0],
+            trajectory[1],
+            trajectory[2],
+            color=theme["edge"],
+            linewidth=TRAJECTORY_OUTLINE_LINEWIDTH,
+            alpha=TRAJECTORY_OUTLINE_ALPHA,
+            zorder=9,
+            label="_nolegend_",
+            **TRAJECTORY_RENDERING,
+        )
+        (trajectory_line,) = ax.plot3D(
             trajectory[0],
             trajectory[1],
             trajectory[2],
             color=theme["trajectory"],
-            linewidth=2.4,
+            linewidth=TRAJECTORY_LINEWIDTH,
             zorder=10,
             label=r"$x(t)$",
+            **TRAJECTORY_RENDERING,
         )
-        ax.scatter(
-            x0_marker[0],
-            x0_marker[1],
-            x0_marker[2],
+
+        initial_marker = ax.scatter(
+            x0[0],
+            x0[1],
+            x0[2],
             marker="o",
-            s=100,
+            s=120,
             color=theme["initial"],
             edgecolor=theme["edge"],
-            linewidth=0.8,
+            linewidth=1.0,
             depthshade=False,
             zorder=11,
             label=r"$x(0)$",
         )
-        ax.scatter(
-            x_target_marker[0],
-            x_target_marker[1],
-            x_target_marker[2],
+        target_marker = ax.scatter(
+            x_target[0],
+            x_target[1],
+            x_target[2],
             marker="o",
-            s=160,
+            s=190,
             color=theme["target"],
             edgecolor=theme["edge"],
-            linewidth=0.8,
+            linewidth=1.0,
             depthshade=False,
             zorder=11,
             label=r"$x^*$",
@@ -293,19 +417,41 @@ class Global_ES_Sphere:
 
         mappable = cm.ScalarMappable(norm=norm, cmap=sphere_cmap)
         mappable.set_array(j_values)
-        colorbar = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.04)
+        colorbar = fig.colorbar(mappable, cax=ax_colorbar)
         colorbar.set_label(r"Cost: $J(x)$", rotation=270, labelpad=18)
         self._apply_charcoal_colorbar_style(colorbar, theme)
 
         ax.set_xlabel(r"$x_1$")
         ax.set_ylabel(r"$x_2$")
         ax.set_zlabel(r"$x_3$")
-        ax.set_xlim([-1.5 * r, 1.5 * r])
-        ax.set_ylim([-1.5 * r, 1.5 * r])
-        ax.set_zlim([-1.5 * r, 1.5 * r])
+        ax.set_xlim([-SPHERE_AXIS_PADDING * r, SPHERE_AXIS_PADDING * r])
+        ax.set_ylim([-SPHERE_AXIS_PADDING * r, SPHERE_AXIS_PADDING * r])
+        ax.set_zlim([-SPHERE_AXIS_PADDING * r, SPHERE_AXIS_PADDING * r])
         ax.set_box_aspect((1, 1, 1), zoom=1.0)
+        ax.set_proj_type("ortho")
         ax.view_init(elev=10, azim=-45)
         self._apply_charcoal_legend_style(ax.legend(loc="upper left"), theme)
+
+        self._plot_mode_panel(ax_mode, times, q_values, theme)
+        fig._global_es_mode_axis = ax_mode
+        fig._global_es_trajectory_outline = trajectory_outline
+        fig._global_es_trajectory_line = trajectory_line
+        fig._global_es_visibility_state = {
+            "trajectory": trajectory,
+            "trajectory_count": trajectory.shape[1],
+            "trajectory_lines": (trajectory_outline, trajectory_line),
+            "markers": [
+                {"artist": initial_marker, "point": x0, "active": True},
+                {
+                    "artist": target_marker,
+                    "point": x_target,
+                    "active": True,
+                },
+            ],
+            "view": None,
+        }
+        self._update_sphere_visibility(fig, ax)
+        self._connect_sphere_visibility_updates(fig, ax)
 
         return fig, ax
 
@@ -324,12 +470,14 @@ class Global_ES_Sphere:
         x_target=e3,
         r=1.0,
         n_grid=100,
-        n_time=450,
+        n_time=ANIMATION_N_TIME,
         frame_step=200,
         interval=40,
         repeat_delay=1200,
         save_path=None,
         fps=30,
+        save_dpi=ANIMATION_SAVE_DPI,
+        bitrate=ANIMATION_BITRATE,
     ):
         if frame_step <= 0:
             raise ValueError("frame_step must be positive")
@@ -344,26 +492,86 @@ class Global_ES_Sphere:
 
         self._hide_3d_axis_labels_and_ticks(ax)
 
-        times = np.linspace(solution.t[0], solution.t[-1], n_time)
-        x_points = solution(times)[:3]
-        x_points = r * x_points / np.linalg.norm(x_points, axis=0)
-        trajectory = 1.03 * x_points
+        ax_mode = getattr(fig, "_global_es_mode_axis", None)
+        trajectory_outline = getattr(fig, "_global_es_trajectory_outline", None)
+        trajectory_line = getattr(fig, "_global_es_trajectory_line", None)
+        if trajectory_outline is None:
+            (trajectory_outline,) = ax.plot3D(
+                [],
+                [],
+                [],
+                color=CHARCOAL_THEME["edge"],
+                linewidth=TRAJECTORY_OUTLINE_LINEWIDTH,
+                alpha=TRAJECTORY_OUTLINE_ALPHA,
+                zorder=9,
+                **TRAJECTORY_RENDERING,
+            )
+        else:
+            trajectory_outline.set_data([], [])
+            trajectory_outline.set_3d_properties([])
 
-        trajectory_line = ax.lines[-1]
-        trajectory_line.set_data([], [])
-        trajectory_line.set_3d_properties([])
+        if trajectory_line is None:
+            (trajectory_line,) = ax.plot3D(
+                [],
+                [],
+                [],
+                color=CHARCOAL_THEME["trajectory"],
+                linewidth=TRAJECTORY_LINEWIDTH,
+                zorder=10,
+                **TRAJECTORY_RENDERING,
+            )
+        else:
+            trajectory_line.set_data([], [])
+            trajectory_line.set_3d_properties([])
+
+        times = np.linspace(solution.t[0], solution.t[-1], n_time)
+        states = solution(times)
+        x_points = states[:3]
+        q_values = np.rint(states[3]).astype(int)
+        x_points = r * x_points / np.linalg.norm(x_points, axis=0)
+        trajectory = x_points
+
+        mode_line = None
+        if ax_mode is not None and ax_mode.lines:
+            mode_line = ax_mode.lines[0]
+            mode_line.set_data([], [])
 
         current_point = ax.scatter(
             [],
             [],
             [],
             marker="o",
-            s=100,
+            s=95,
             color=CHARCOAL_THEME["trajectory"],
             edgecolor=CHARCOAL_THEME["edge"],
-            linewidth=0.6,
+            linewidth=0.8,
             depthshade=False,
             zorder=12,
+        )
+        visibility_state = fig._global_es_visibility_state
+        visibility_state["trajectory"] = trajectory
+        visibility_state["trajectory_count"] = 0
+        current_marker = {
+            "artist": current_point,
+            "point": trajectory[:, 0],
+            "active": True,
+        }
+        visibility_state["markers"].append(current_marker)
+
+        mode_text = ax.text2D(
+            0.97,
+            0.94,
+            "",
+            transform=ax.transAxes,
+            color=CHARCOAL_THEME["text"],
+            fontsize=11,
+            ha="right",
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "facecolor": CHARCOAL_THEME["axes"],
+                "edgecolor": CHARCOAL_THEME["grid"],
+                "alpha": 0.95,
+            },
         )
 
         frame_indices = np.linspace(0, n_time - 1, frame_step, dtype=int)
@@ -372,14 +580,22 @@ class Global_ES_Sphere:
 
         def update(frame_idx):
             idx = frame_indices[frame_idx] + 1
-            trajectory_line.set_data(trajectory[0, :idx], trajectory[1, :idx])
-            trajectory_line.set_3d_properties(trajectory[2, :idx])
+            active_mode = q_values[idx - 1]
+            visibility_state["trajectory_count"] = idx
+            current_marker["point"] = trajectory[:, idx - 1]
             current_point._offsets3d = (
                 [trajectory[0, idx - 1]],
                 [trajectory[1, idx - 1]],
                 [trajectory[2, idx - 1]],
             )
-            return trajectory_line, current_point
+            self._update_sphere_visibility(fig, ax)
+            mode_text.set_text(f"{MODE_VIEW_LABELS[int(active_mode)]}")
+            if mode_line is not None:
+                mode_line.set_data(times[:idx], q_values[:idx])
+            artists = [trajectory_outline, trajectory_line, current_point, mode_text]
+            if mode_line is not None:
+                artists.append(mode_line)
+            return tuple(artists)
 
         ani = animation.FuncAnimation(
             fig,
@@ -397,7 +613,8 @@ class Global_ES_Sphere:
                 import imageio_ffmpeg
 
                 plt.rcParams["animation.ffmpeg_path"] = imageio_ffmpeg.get_ffmpeg_exe()
-            writer = animation.FFMpegWriter(fps=fps)
-            ani.save(save_path, writer=writer, dpi=160)
+            writer = animation.FFMpegWriter(fps=fps, bitrate=bitrate)
+            with plt.rc_context({"path.simplify": False}):
+                ani.save(save_path, writer=writer, dpi=save_dpi)
 
         return ani

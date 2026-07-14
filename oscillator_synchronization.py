@@ -89,6 +89,7 @@ class OscillatorSynchronization:
         t_1,
         t_2,
         tau=None,
+        xi0=None,
         mode_schedule=None,
         mode_schedule_config=None,
         graphs=None,
@@ -102,8 +103,12 @@ class OscillatorSynchronization:
         self.t_1 = t_1
         self.t_2 = t_2
 
-        # Generate starting angles ξ_i ∈ [0, 2π) for each oscillator
-        self.xi0 = np.random.uniform(0.0, 2 * np.pi, size=r)
+        # Generate starting angles eta_i ∈ [0, 2π) for each oscillator
+        if xi0 is None:
+            self.xi0 = np.random.uniform(0.0, 2 * np.pi, size=r)
+            print(self.xi0)
+        else:
+            self.xi0 = xi0
 
         if tau is None:
             self.tau = self.generate_control_directions()

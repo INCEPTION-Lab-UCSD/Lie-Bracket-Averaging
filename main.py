@@ -80,6 +80,7 @@ def run_vehicle_trajectory_simulation():
 def run_oscillator_synchronization_simulation():
     r = 2
     N_2 = 1
+    xi0 = np.array([0.0, np.pi])
     kappa = 10
     epsilon = 1 / np.sqrt(10 * np.pi)
     omega = np.array([1, 2])
@@ -95,18 +96,20 @@ def run_oscillator_synchronization_simulation():
         omega,
         t_1,
         t_2,
+        xi0=xi0,
         mode_schedule_config={"eta_1": eta_1, "N_0": N_o},
     )
 
     solution = oscillator.solve()
     # ani = oscillator.animate_solution(solution)
 
-    ani = oscillator.animate_solution_3d(solution, frame_step=500)
+    ani = oscillator.animate_solution_3d(solution, frame_step=1000)
     plt.show()
 
 
 def run_oscillator_synchronization_simulation_multi_graph():
     r = 4
+    xi0 = np.array([4.75457267, 1.36068925])
     eta_1 = 1.5
     N_o = 1
     graphs = [
@@ -141,6 +144,7 @@ def run_oscillator_synchronization_simulation_multi_graph():
         t_2,
         graphs=graphs,
         tau=tau,
+        xi0=xi0,
         mode_schedule_config={"eta_1": eta_1, "N_0": N_o},
     )
     solution = oscillator.solve()
@@ -155,8 +159,19 @@ def run_global_es_sphere():
     omega = np.array([2, 3, 1])
     kappa = 4
     x0 = np.array([-0.11, 0.11, -0.98])
-    x0 = np.append(x0, [2, 0.0])
+    x0 = np.append(x0, [2, 1.0])
     x_target = np.array([0, 0, 1], dtype=float)
+    delta = 0.15
+
+    # x0 = np.array(
+    #     [
+    #         0.61918323,
+    #         -0.48181853,
+    #         -0.62005083,
+    #         1,  # start in Blue view
+    #         0.0,
+    #     ]
+    # )
     t_1 = 0.0
     t_2 = 15.0
     sphere_simulation = global_es_sphere.Global_ES_Sphere(
@@ -164,13 +179,13 @@ def run_global_es_sphere():
     )
     solution = sphere_simulation.solve(x0, t_1)
     # sphere_simulation.plot_sphere_simulation(solution, x_target)
-    ani = sphere_simulation.animate_solution(solution, x_target)
+    ani = sphere_simulation.animate_solution(solution, x_target, frame_step=1000)
     plt.show()
     return ani
 
 
 if __name__ == "__main__":
-    run_vehicle_trajectory_simulation()
+    # run_vehicle_trajectory_simulation()
     # run_oscillator_synchronization_simulation()
     # run_oscillator_synchronization_simulation_multi_graph()
-    # run_global_es_sphere()
+    run_global_es_sphere()
