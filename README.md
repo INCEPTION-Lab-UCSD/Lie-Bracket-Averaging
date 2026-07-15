@@ -35,7 +35,6 @@ To run a different example, edit the `if __name__ == "__main__":` block in
 if __name__ == "__main__":
     run_vehicle_trajectory_simulation()
     # run_oscillator_synchronization_simulation()
-    # run_oscillator_synchronization_simulation_multi_graph()
     # run_global_es_sphere()
 ```
 
@@ -46,13 +45,11 @@ Available examples:
   `Animations/vehicle_trajectory.mp4`.
 - `run_oscillator_synchronization_simulation()` runs the two-oscillator
   synchronization example and opens the 3D animation.
-- `run_oscillator_synchronization_simulation_multi_graph()` runs the
-  multi-graph oscillator example and opens the Cartesian component animation.
 - `run_global_es_sphere()` runs the global extremum-seeking example on the
   sphere and opens the animation.
 
 Some modules also expose plotting helpers such as `plot_trajectory()`,
-`plot_solution()`, `plot_solution_3d()`, and `plot_sphere_simulation()`. These
+`plot_solution_3d()`, and `plot_sphere_simulation()`. These
 can be called from a Python session or by swapping the corresponding
 `animate_*()` call in `main.py` for the `plot_*()` call and then running
 `uv run python main.py`.

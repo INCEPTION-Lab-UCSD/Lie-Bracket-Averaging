@@ -491,27 +491,6 @@ class OscillatorSynchronization:
             vmax=max(2.0, float(np.max(cost))),
         )
 
-    def _plot_wrapped_phase_curve(self, ax, xi, **plot_kwargs):
-        x_data, y_data = self._wrapped_phase_line_data(xi)
-        ax.plot(x_data, y_data, **plot_kwargs)
-
-    def _wrapped_phase_line_data(self, xi):
-        jumps = np.any(np.abs(np.diff(xi, axis=1)) > np.pi, axis=0)
-        x_data = []
-        y_data = []
-
-        for i in range(xi.shape[1]):
-            if i > 0 and jumps[i - 1]:
-                x_data.append(np.nan)
-                y_data.append(np.nan)
-            x_data.append(xi[0, i])
-            y_data.append(xi[1, i])
-
-        return np.array(x_data), np.array(y_data)
-
-    def _wrapped_phase_difference(self, xi):
-        return np.angle(np.exp(1j * (xi[0] - xi[1])))
-
     @staticmethod
     def _apply_dark_2d_axis_style(ax, theme=CHARCOAL_THEME):
         ax.set_facecolor(theme["axes"])
@@ -552,51 +531,34 @@ class OscillatorSynchronization:
             axis._axinfo["axisline"]["linewidth"] = 0.0
         ax.grid(False)
 
-    def _setup_phase_difference_axis(self, ax, t_start, t_end, theme=None):
-        ax.set_title("Phase Difference", fontsize=12, pad=6)
+    def _setup_oscillator_state_axis(
+        self,
+        ax,
+        oscillator_index,
+        t_start,
+        t_end,
+        theme=None,
+    ):
+        ax.set_title(rf"Oscillator {oscillator_index + 1} State", fontsize=11, pad=6)
         ax.set_xlabel(r"$t$")
-        ax.set_ylabel(r"$\xi_1-\xi_2$")
+        ax.set_ylabel(rf"$\xi_{oscillator_index + 1}$")
         ax.set_xlim(t_start, t_end)
-        ax.set_ylim(-np.pi, np.pi)
-        ax.set_yticks([-np.pi, 0.0, np.pi])
-        ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+        ax.set_ylim(0.0, 2 * np.pi)
+        ax.set_yticks([0.0, np.pi, 2 * np.pi])
+        ax.set_yticklabels(["0", r"$\pi$", r"$2\pi$"])
         if theme is not None:
             self._apply_dark_2d_axis_style(ax, theme)
-            ax.axhline(0.0, color=theme["text"], linewidth=1, alpha=0.38)
             ax.grid(True, color=theme["grid"], alpha=0.6)
         else:
-            ax.axhline(0.0, color="black", linewidth=1, alpha=0.35)
             ax.grid(True, alpha=0.3)
 
-    def _mode_trace_data_until(self, t_current, t_final=None):
-        if t_final is None:
-            t_final = self.t_2
-
-        t_end = min(t_current, t_final)
-        active_schedule = [
-            (time, mode) for time, mode in self.mode_schedule if time < t_final
-        ]
-        boundaries = [time for time, _ in active_schedule]
-        boundaries.append(t_final)
-        modes = [mode for _, mode in active_schedule]
-
-        z_values = [modes[0]]
-        t_values = [boundaries[0]]
-        for i, mode in enumerate(modes):
-            segment_end = min(boundaries[i + 1], t_end)
-            if segment_end < boundaries[i]:
-                break
-
-            z_values.append(mode)
-            t_values.append(segment_end)
-            if segment_end >= t_end:
-                break
-
-            if i + 1 < len(modes):
-                z_values.append(modes[i + 1])
-                t_values.append(segment_end)
-
-        return z_values, t_values
+    @staticmethod
+    def _wrapped_phase_trace(phase):
+        """Return a wrapped phase trace with discontinuities omitted."""
+        trace = np.asarray(phase, dtype=float).copy()
+        jumps = np.abs(np.diff(trace)) > np.pi
+        trace[1:][jumps] = np.nan
+        return trace
 
     def _mode_at_time(self, t):
         mode = self.mode_schedule[0][1]
@@ -609,12 +571,6 @@ class OscillatorSynchronization:
     def _alpha_for_mode(self, mode):
         tau_index, _ = self.bijection(mode)
         return np.asarray(self.tau[tau_index], dtype=float)
-
-    def _mode_axis_ticks(self):
-        max_mode = self.N_1 * self.N_2
-        if max_mode <= 8:
-            return list(range(1, max_mode + 1))
-        return sorted(set(np.linspace(1, max_mode, 4, dtype=int)))
 
     def _setup_unit_circle_axis(self, ax, oscillator_index, theme=None):
         theta = np.linspace(0.0, 2 * np.pi, 400)
@@ -726,272 +682,6 @@ class OscillatorSynchronization:
         ax.set_yticks([])
         ax.set_zticks([])
 
-    def plot_solution(
-        self,
-        solution,
-        graph_index=0,
-        n_grid=300,
-        n_time=2000,
-        trajectory_color="red",
-        cost_gamma=None,
-    ):
-        """
-        Plot z_1(t) and the wrapped two-oscillator phase trajectory.
-
-        The right panel is intended for a fixed single graph. If multiple graphs
-        are present, pass the graph_index whose cost surface should be shown.
-        """
-        if self.r != 2:
-            raise ValueError("this plot is defined for the two-oscillator case r == 2")
-        if not 0 <= graph_index < self.N_2:
-            raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
-
-        fig, (ax_mode, ax_phase) = plt.subplots(
-            1,
-            2,
-            figsize=(8, 5),
-            gridspec_kw={"width_ratios": [1, 3]},
-        )
-
-        t_end = solution.t[-1]
-        boundaries = [time for time, _ in self.mode_schedule] + [t_end]
-        modes = [mode for _, mode in self.mode_schedule]
-
-        z_values = [modes[0]]
-        t_values = [boundaries[0]]
-        for i, mode in enumerate(modes):
-            segment_end = boundaries[i + 1]
-            z_values.append(mode)
-            t_values.append(segment_end)
-            if i + 1 < len(modes):
-                z_values.append(modes[i + 1])
-                t_values.append(segment_end)
-
-        ax_mode.plot(z_values, t_values, color="black", linewidth=4)
-        ax_mode.set_xlabel(r"$z_1(t)$")
-        ax_mode.set_ylabel(r"$t$")
-        ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
-        ax_mode.set_ylim(boundaries[0], t_end)
-        ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.grid(True, alpha=0.3)
-
-        phase_max = 2 * np.pi
-        xi_values = np.linspace(0.0, phase_max, n_grid)
-        xi_1, xi_2 = np.meshgrid(xi_values, xi_values)
-        cost = self.synchronization_cost_grid(xi_1, xi_2, graph_index)
-        norm = self._cost_color_norm(cost, cost_gamma)
-        image = ax_phase.imshow(
-            cost,
-            extent=(0.0, phase_max, 0.0, phase_max),
-            origin="lower",
-            cmap="gray",
-            norm=norm,
-            aspect="equal",
-        )
-
-        t_eval = np.linspace(solution.t[0], t_end, n_time)
-        xi = np.mod(solution(t_eval)[:2], phase_max)
-        self._plot_wrapped_phase_curve(
-            ax_phase,
-            xi,
-            color=trajectory_color,
-            linewidth=3,
-            label=r"$\xi(t)$",
-        )
-        ax_phase.scatter(
-            xi[0, 0],
-            xi[1, 0],
-            color="black",
-            s=45,
-            zorder=4,
-            label=r"$\xi(0)$",
-        )
-
-        ax_phase.set_xlabel(r"$\xi_1$")
-        ax_phase.set_ylabel(r"$\xi_2$")
-        ax_phase.set_xlim(0.0, phase_max)
-        ax_phase.set_ylim(0.0, phase_max)
-        ax_phase.set_xticks(range(0, 7))
-        ax_phase.set_yticks(range(0, 7))
-        ax_phase.legend(loc="upper left", bbox_to_anchor=(0.0, 1.1), ncol=2)
-
-        colorbar = fig.colorbar(image, ax=ax_phase, fraction=0.046, pad=0.14)
-        colorbar.set_ticks(np.linspace(norm.vmin, norm.vmax, 5))
-        colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
-
-        fig.tight_layout()
-        return fig, (ax_mode, ax_phase)
-
-    def animate_solution(
-        self,
-        solution,
-        graph_index=0,
-        n_grid=300,
-        n_time=2000,
-        frame_step=200,
-        interval=40,
-        repeat_delay=1200,
-        trajectory_color="red",
-        cost_gamma=None,
-    ):
-        """
-        Animate two unit-circle oscillator states and the wrapped phase trajectory.
-        """
-        if frame_step <= 0:
-            raise ValueError("frame_step must be positive")
-        if self.r != 2:
-            raise ValueError("this animation is defined for r == 2")
-        if not 0 <= graph_index < self.N_2:
-            raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
-
-        fig = plt.figure(figsize=(10, 5.5))
-        grid_spec = fig.add_gridspec(
-            3,
-            2,
-            width_ratios=[1, 3.35],
-            height_ratios=[1, 1, 0.36],
-            hspace=0.78,
-        )
-        ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
-        ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
-        ax_phase = fig.add_subplot(grid_spec[:2, 1])
-        ax_phase_diff = fig.add_subplot(grid_spec[2, 1])
-
-        t_start = solution.t[0]
-        t_end = solution.t[-1]
-
-        circle_points, circle_arrows, circle_titles = self._setup_unit_circle_axes(
-            (ax_circle_1, ax_circle_2),
-            point_color=trajectory_color,
-        )
-
-        phase_max = 2 * np.pi
-        xi_values = np.linspace(0.0, phase_max, n_grid)
-        xi_1, xi_2 = np.meshgrid(xi_values, xi_values)
-        cost = self.synchronization_cost_grid(xi_1, xi_2, graph_index)
-        norm = self._cost_color_norm(cost, cost_gamma)
-        image = ax_phase.imshow(
-            cost,
-            extent=(0.0, phase_max, 0.0, phase_max),
-            origin="lower",
-            cmap="gray",
-            norm=norm,
-            aspect="equal",
-        )
-
-        ax_phase.set_xlabel(r"$\xi_1$")
-        ax_phase.set_ylabel(r"$\xi_2$")
-        ax_phase.set_xlim(0.0, phase_max)
-        ax_phase.set_ylim(0.0, phase_max)
-        ax_phase.set_xticks(range(0, 7))
-        ax_phase.set_yticks(range(0, 7))
-
-        t_eval = np.linspace(t_start, t_end, n_time)
-        xi = np.mod(solution(t_eval)[:2], phase_max)
-        phase_difference = self._wrapped_phase_difference(xi)
-        self._setup_phase_difference_axis(ax_phase_diff, t_start, t_end)
-
-        (phase_line,) = ax_phase.plot(
-            [],
-            [],
-            color=trajectory_color,
-            linewidth=3,
-            label=r"$\xi(t)$",
-        )
-        current_point = ax_phase.scatter(
-            [],
-            [],
-            color=trajectory_color,
-            s=35,
-            zorder=5,
-        )
-        initial_point = ax_phase.scatter(
-            xi[0, 0],
-            xi[1, 0],
-            color="black",
-            s=45,
-            zorder=4,
-            label=r"$\xi(0)$",
-        )
-        (phase_difference_line,) = ax_phase_diff.plot(
-            [],
-            [],
-            color=trajectory_color,
-            linewidth=2.5,
-        )
-        (phase_difference_point,) = ax_phase_diff.plot(
-            [],
-            [],
-            marker="o",
-            color=trajectory_color,
-            markersize=5,
-        )
-        ax_phase.legend(loc="upper left", bbox_to_anchor=(0.0, 1.1), ncol=2)
-
-        colorbar = fig.colorbar(image, ax=ax_phase, fraction=0.046, pad=0.04)
-        colorbar.set_ticks(np.linspace(norm.vmin, norm.vmax, 5))
-        colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
-        fig.subplots_adjust(
-            left=0.06,
-            right=0.92,
-            top=0.90,
-            bottom=0.10,
-            wspace=0.28,
-            hspace=0.78,
-        )
-
-        frame_indices = np.linspace(0, n_time - 1, frame_step, dtype=int)
-        if frame_indices[-1] != n_time - 1:
-            frame_indices = np.append(frame_indices, n_time - 1)
-
-        def update(frame_idx):
-            idx = frame_indices[frame_idx] + 1
-
-            phase_x, phase_y = self._wrapped_phase_line_data(xi[:, :idx])
-            phase_line.set_data(phase_x, phase_y)
-            current_point.set_offsets([[xi[0, idx - 1], xi[1, idx - 1]]])
-            phase_difference_line.set_data(t_eval[:idx], phase_difference[:idx])
-            phase_difference_point.set_data(
-                [t_eval[idx - 1]],
-                [phase_difference[idx - 1]],
-            )
-            t_current = t_eval[idx - 1]
-            mode = self._mode_at_time(t_current)
-            state = solution(t_current)
-            alpha = self._alpha_for_mode(mode)
-            direction = self.current_direction(state, mode)
-
-            self._update_unit_circle_artists(
-                circle_points,
-                circle_arrows,
-                circle_titles,
-                xi[:, idx - 1],
-                direction,
-                alpha,
-            )
-
-            return (
-                *circle_points,
-                *circle_arrows,
-                phase_line,
-                current_point,
-                initial_point,
-                phase_difference_line,
-                phase_difference_point,
-            )
-
-        ani = animation.FuncAnimation(
-            fig,
-            update,
-            frames=len(frame_indices),
-            interval=interval,
-            repeat=True,
-            repeat_delay=repeat_delay,
-            blit=False,
-        )
-        update(0)
-        return ani
-
     def plot_solution_3d(
         self,
         solution,
@@ -1029,7 +719,8 @@ class OscillatorSynchronization:
         ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
         ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
         ax_torus = fig.add_subplot(grid_spec[:2, 1:], projection="3d")
-        ax_phase_diff = fig.add_subplot(grid_spec[2, :])
+        ax_state_1 = fig.add_subplot(grid_spec[2, 1:3])
+        ax_state_2 = fig.add_subplot(grid_spec[2, 3:], sharex=ax_state_1)
 
         t_end = solution.t[-1]
         circle_points, circle_arrows, circle_titles = self._setup_unit_circle_axes(
@@ -1132,23 +823,23 @@ class OscillatorSynchronization:
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
         self._apply_dark_colorbar_style(colorbar, theme)
 
-        phase_difference = self._wrapped_phase_difference(xi)
-        self._setup_phase_difference_axis(
-            ax_phase_diff,
-            solution.t[0],
-            t_end,
-            theme=theme,
-        )
-        ax_phase_diff.plot(
-            t_eval, phase_difference, color=trajectory_color, linewidth=2.5
-        )
-        ax_phase_diff.plot(
-            [t_eval[-1]],
-            [phase_difference[-1]],
-            marker="o",
-            color=trajectory_color,
-            markersize=5,
-        )
+        for oscillator_index, ax_state in enumerate((ax_state_1, ax_state_2)):
+            self._setup_oscillator_state_axis(
+                ax_state,
+                oscillator_index,
+                solution.t[0],
+                t_end,
+                theme=theme,
+            )
+            state_trace = self._wrapped_phase_trace(xi[oscillator_index])
+            ax_state.plot(t_eval, state_trace, color=trajectory_color, linewidth=2.5)
+            ax_state.plot(
+                [t_eval[-1]],
+                [xi[oscillator_index, -1]],
+                marker="o",
+                color=trajectory_color,
+                markersize=5,
+            )
 
         state_end = solution(t_end)
         mode_end = self._mode_at_time(t_end)
@@ -1171,7 +862,7 @@ class OscillatorSynchronization:
             wspace=0.18,
             hspace=0.55,
         )
-        return fig, ((ax_circle_1, ax_circle_2), ax_torus, ax_phase_diff)
+        return fig, ((ax_circle_1, ax_circle_2), ax_torus, (ax_state_1, ax_state_2))
 
     def animate_solution_3d(
         self,
@@ -1208,14 +899,15 @@ class OscillatorSynchronization:
             3,
             4,
             width_ratios=[1.45, 1.45, 1.45, 1.0],
-            height_ratios=[1.25, 1.25, 0.55],
+            height_ratios=[1.25, 1.25, 0.65],
             hspace=0.55,
             wspace=0.18,
         )
         ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
         ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
         ax_torus = fig.add_subplot(grid_spec[:2, 1:-1], projection="3d")
-        ax_phase_diff = fig.add_subplot(grid_spec[2, 1:-1])
+        ax_state_1 = fig.add_subplot(grid_spec[2, 1])
+        ax_state_2 = fig.add_subplot(grid_spec[2, 2], sharex=ax_state_1)
 
         t_start = solution.t[0]
         t_end = solution.t[-1]
@@ -1270,8 +962,15 @@ class OscillatorSynchronization:
 
         t_eval = np.linspace(t_start, t_end, n_time)
         xi = np.mod(solution(t_eval)[:2], phase_max)
-        phase_difference = self._wrapped_phase_difference(xi)
-        self._setup_phase_difference_axis(ax_phase_diff, t_start, t_end, theme=theme)
+        state_traces = tuple(self._wrapped_phase_trace(xi_i) for xi_i in xi)
+        for oscillator_index, ax_state in enumerate((ax_state_1, ax_state_2)):
+            self._setup_oscillator_state_axis(
+                ax_state,
+                oscillator_index,
+                t_start,
+                t_end,
+                theme=theme,
+            )
         traj_x, traj_y, traj_z = self.embed_torus_3d(
             xi[0],
             xi[1],
@@ -1308,19 +1007,15 @@ class OscillatorSynchronization:
             depthshade=False,
             label=r"$\xi(0)$",
         )
-        (phase_difference_line,) = ax_phase_diff.plot(
-            [],
-            [],
-            color=trajectory_color,
-            linewidth=2.5,
-        )
-        (phase_difference_point,) = ax_phase_diff.plot(
-            [],
-            [],
-            marker="o",
-            color=trajectory_color,
-            markersize=5,
-        )
+        state_lines = []
+        state_points = []
+        for ax_state in (ax_state_1, ax_state_2):
+            (state_line,) = ax_state.plot([], [], color=trajectory_color, linewidth=2.5)
+            (state_point,) = ax_state.plot(
+                [], [], marker="o", color=trajectory_color, markersize=5
+            )
+            state_lines.append(state_line)
+            state_points.append(state_point)
         self._apply_dark_legend_style(ax_torus.legend(loc="upper left"), theme)
 
         mappable = cm.ScalarMappable(norm=norm, cmap=torus_cmap)
@@ -1358,11 +1053,14 @@ class OscillatorSynchronization:
                 [traj_y[idx - 1]],
                 [traj_z[idx - 1]],
             )
-            phase_difference_line.set_data(t_eval[:idx], phase_difference[:idx])
-            phase_difference_point.set_data(
-                [t_eval[idx - 1]],
-                [phase_difference[idx - 1]],
-            )
+            for oscillator_index, (state_line, state_point) in enumerate(
+                zip(state_lines, state_points)
+            ):
+                state_line.set_data(t_eval[:idx], state_traces[oscillator_index][:idx])
+                state_point.set_data(
+                    [t_eval[idx - 1]],
+                    [xi[oscillator_index, idx - 1]],
+                )
             t_current = t_eval[idx - 1]
             mode = self._mode_at_time(t_current)
             state = solution(t_current)
@@ -1384,155 +1082,9 @@ class OscillatorSynchronization:
                 trajectory_line,
                 current_point,
                 initial_point,
-                phase_difference_line,
-                phase_difference_point,
+                *state_lines,
+                *state_points,
             )
-
-        ani = animation.FuncAnimation(
-            fig,
-            update,
-            frames=len(frame_indices),
-            interval=interval,
-            repeat=True,
-            repeat_delay=repeat_delay,
-            blit=False,
-        )
-        update(0)
-        return ani
-
-    def plot_cartesian_components(
-        self,
-        solution,
-        n_time=None,
-        component_colors=None,
-    ):
-        """
-        Plot z_1(t) and Cartesian oscillator components x_1^i(t), x_2^i(t).
-        """
-        if n_time is None:
-            t_eval = solution.t
-            cartesian = self.xi_to_cartesian(solution.y[: self.r])
-        else:
-            t_eval = np.linspace(solution.t[0], solution.t[-1], n_time)
-            cartesian = self.xi_to_cartesian(solution(t_eval)[: self.r])
-
-        if component_colors is None:
-            component_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
-        fig = plt.figure(figsize=(9, 5))
-        grid_spec = fig.add_gridspec(2, 2, width_ratios=[1, 3], hspace=0.05)
-        ax_mode = fig.add_subplot(grid_spec[:, 0])
-        ax_x1 = fig.add_subplot(grid_spec[0, 1])
-        ax_x2 = fig.add_subplot(grid_spec[1, 1], sharex=ax_x1)
-
-        z_values, t_values = self._mode_trace_data_until(
-            solution.t[-1],
-            t_final=solution.t[-1],
-        )
-        ax_mode.plot(z_values, t_values, color="black", linewidth=4)
-        ax_mode.set_xlabel(r"$z_1(t)$")
-        ax_mode.set_ylabel(r"$t$")
-        ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
-        ax_mode.set_ylim(solution.t[0], solution.t[-1])
-        ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.minorticks_on()
-
-        for i in range(self.r):
-            color = component_colors[i % len(component_colors)]
-            label = rf"$x^{i + 1}(t)$"
-            ax_x1.plot(
-                t_eval, cartesian[i, :, 0], color=color, linewidth=2, label=label
-            )
-            ax_x2.plot(t_eval, cartesian[i, :, 1], color=color, linewidth=2)
-
-        ax_x1.set_ylabel(r"$x_1^i(t)$")
-        ax_x2.set_ylabel(r"$x_2^i(t)$")
-        ax_x2.set_xlabel(r"$t$")
-        ax_x1.set_ylim(-1.1, 1.1)
-        ax_x2.set_ylim(-1.1, 1.1)
-        ax_x1.grid(True, alpha=0.25)
-        ax_x2.grid(True, alpha=0.25)
-        ax_x1.legend(loc="upper center", bbox_to_anchor=(0.5, 1.34), ncol=self.r)
-        plt.setp(ax_x1.get_xticklabels(), visible=False)
-
-        fig.subplots_adjust(top=0.82, wspace=0.25, hspace=0.05)
-        return fig, (ax_mode, ax_x1, ax_x2)
-
-    def animate_cartesian_components(
-        self,
-        solution,
-        n_time=2000,
-        frame_step=200,
-        interval=40,
-        repeat_delay=1200,
-        component_colors=None,
-    ):
-        """
-        Animate z_1(t) and Cartesian oscillator components x_1^i(t), x_2^i(t).
-        """
-        if frame_step <= 0:
-            raise ValueError("frame_step must be positive")
-        if component_colors is None:
-            component_colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
-        t_eval = np.linspace(solution.t[0], solution.t[-1], n_time)
-        cartesian = self.xi_to_cartesian(solution(t_eval)[: self.r])
-
-        fig = plt.figure(figsize=(9, 5))
-        grid_spec = fig.add_gridspec(2, 2, width_ratios=[1, 3], hspace=0.05)
-        ax_mode = fig.add_subplot(grid_spec[:, 0])
-        ax_x1 = fig.add_subplot(grid_spec[0, 1])
-        ax_x2 = fig.add_subplot(grid_spec[1, 1], sharex=ax_x1)
-
-        ax_mode.set_xlabel(r"$z_1(t)$")
-        ax_mode.set_ylabel(r"$t$")
-        ax_mode.set_xlim(0.5, self.N_1 * self.N_2 + 0.5)
-        ax_mode.set_ylim(solution.t[0], solution.t[-1])
-        ax_mode.set_xticks(self._mode_axis_ticks())
-        ax_mode.minorticks_on()
-
-        ax_x1.set_ylabel(r"$x_1^i(t)$")
-        ax_x2.set_ylabel(r"$x_2^i(t)$")
-        ax_x2.set_xlabel(r"$t$")
-        ax_x1.set_xlim(solution.t[0], solution.t[-1])
-        ax_x1.set_ylim(-1.1, 1.1)
-        ax_x2.set_ylim(-1.1, 1.1)
-        ax_x1.grid(True, alpha=0.25)
-        ax_x2.grid(True, alpha=0.25)
-        plt.setp(ax_x1.get_xticklabels(), visible=False)
-
-        (mode_line,) = ax_mode.plot([], [], color="black", linewidth=4)
-        x1_lines = []
-        x2_lines = []
-        for i in range(self.r):
-            color = component_colors[i % len(component_colors)]
-            label = rf"$x^{i + 1}(t)$"
-            (x1_line,) = ax_x1.plot([], [], color=color, linewidth=2, label=label)
-            (x2_line,) = ax_x2.plot([], [], color=color, linewidth=2)
-            x1_lines.append(x1_line)
-            x2_lines.append(x2_line)
-
-        ax_x1.legend(loc="upper center", bbox_to_anchor=(0.5, 1.34), ncol=self.r)
-        fig.subplots_adjust(top=0.82, wspace=0.25, hspace=0.05)
-
-        frame_indices = np.linspace(0, n_time - 1, frame_step, dtype=int)
-        if frame_indices[-1] != n_time - 1:
-            frame_indices = np.append(frame_indices, n_time - 1)
-
-        def update(frame_idx):
-            idx = frame_indices[frame_idx] + 1
-
-            mode_x, mode_y = self._mode_trace_data_until(
-                t_eval[idx - 1],
-                t_final=solution.t[-1],
-            )
-            mode_line.set_data(mode_x, mode_y)
-
-            for i in range(self.r):
-                x1_lines[i].set_data(t_eval[:idx], cartesian[i, :idx, 0])
-                x2_lines[i].set_data(t_eval[:idx], cartesian[i, :idx, 1])
-
-            return (mode_line, *x1_lines, *x2_lines)
 
         ani = animation.FuncAnimation(
             fig,

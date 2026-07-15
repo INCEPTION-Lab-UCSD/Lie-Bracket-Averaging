@@ -101,54 +101,7 @@ def run_oscillator_synchronization_simulation():
     )
 
     solution = oscillator.solve()
-    # ani = oscillator.animate_solution(solution)
-
     ani = oscillator.animate_solution_3d(solution, frame_step=1000)
-    plt.show()
-
-
-def run_oscillator_synchronization_simulation_multi_graph():
-    r = 4
-    xi0 = np.array([4.75457267, 1.36068925])
-    eta_1 = 1.5
-    N_o = 1
-    graphs = [
-        [(3, 1), (1, 3), (2, 1), (1, 2), (4, 2), (2, 4)],
-        [
-            (1, 2),
-            (2, 1),
-            (1, 4),
-            (4, 1),
-            (4, 3),
-            (3, 4),
-            (3, 2),
-            (2, 3),
-            (4, 2),
-            (2, 4),
-        ],
-        [(3, 4), (4, 3), (4, 2), (2, 4), (2, 1), (1, 2)],
-    ]
-    kappa = 10
-    epsilon = 1 / np.sqrt(10 * np.pi)
-    omega = np.array([1, 4 / 3, 5 / 3, 2])
-    t_1 = 0.0
-    t_2 = 10.0
-    tau = [(1, 1, -1, 1), (-1, 1, 1, 1), (-1, 1, -1, -1), (-1, -1, 1, 1)]
-
-    oscillator = oscillator_synchronization.Oscillator_Synchronization(
-        r,
-        epsilon,
-        kappa,
-        omega,
-        t_1,
-        t_2,
-        graphs=graphs,
-        tau=tau,
-        xi0=xi0,
-        mode_schedule_config={"eta_1": eta_1, "N_0": N_o},
-    )
-    solution = oscillator.solve()
-    ani = oscillator.animate_cartesian_components(solution)
     plt.show()
 
 
