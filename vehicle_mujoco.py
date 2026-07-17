@@ -21,12 +21,6 @@ MODE_LABELS = {
     3: "Normal Measurements",
 }
 
-MODE_COLOR_NAMES = {
-    1: "red",
-    2: "orange",
-    3: "blue",
-}
-
 TARGET_CENTER_SIZE = 0.10
 VEHICLE_TRAJECTORY_ALPHA = 1.00
 VEHICLE_TRAJECTORY_Z = 0.095
@@ -121,7 +115,7 @@ class MuJoCoVehicleVisualizer:
         span = np.maximum(max_xy - min_xy, 4.0)
         floor_size = max(span) / 2.0 + 1.0
         camera_distance = max(span) * 1.15
-        camera_height = max(span) * 0.85 + 3.0
+        camera_height = camera_distance + 3.0
         floor_min_xy = center - floor_size
         floor_max_xy = center + floor_size
         level_assets, level_geoms = self._level_sets(floor_min_xy, floor_max_xy)
@@ -152,18 +146,13 @@ class MuJoCoVehicleVisualizer:
   <asset>
     <texture name="skybox" type="skybox" builtin="flat" width="32" height="32"
              rgb1="1 1 1" rgb2="1 1 1"/>
-    <texture name="grid" type="2d" builtin="checker" width="512" height="512"
-             rgb1="0.96 0.96 0.96" rgb2="0.86 0.88 0.89"/>
-    <material name="grid" texture="grid" texrepeat="4 4" reflectance="0.0"/>
 {level_assets}
   </asset>
   <worldbody>
 
     <camera name="overview"
             pos="{center[0]:.6f} {center[1] - camera_distance:.6f} {camera_height:.6f}"
-            xyaxes="1 0 0 0 0.58 0.82"/>
-    <geom name="floor" type="plane" pos="{center[0]:.6f} {center[1]:.6f} 0"
-          size="{floor_size:.6f} {floor_size:.6f} 0.1" material="grid"/>
+            xyaxes="1 0 0 0 0.707107 0.707107"/>
 {level_geoms}
     <geom name="target" type="cylinder"
           pos="{goal[0]:.6f} {goal[1]:.6f} 0.012"
@@ -466,25 +455,14 @@ class MuJoCoVehicleVisualizer:
                     time.sleep(sleep_time)
 
     def _viewer_texts(self, t):
-        mode_left = "Mode 1\nMode 2\nMode 3"
+        mode_left = "1\n2\n3"
         mode_right = "\n".join(self._mode_label_text(mode) for mode in (1, 2, 3))
-        playback_left = "\n".join(playback.label for playback in self.playbacks)
-        playback_right = []
-        for playback in self.playbacks:
-            playback_right.append(self._playback_status_text(playback, t))
-
         return [
             (
                 mujoco.mjtFontScale.mjFONTSCALE_150,
                 mujoco.mjtGridPos.mjGRID_TOPLEFT,
                 mode_left,
                 mode_right,
-            ),
-            (
-                mujoco.mjtFontScale.mjFONTSCALE_150,
-                mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
-                playback_left,
-                "\n".join(playback_right),
             ),
         ]
 
@@ -505,24 +483,26 @@ class MuJoCoVehicleVisualizer:
         self,
         output_path,
         fps=24.0,
-        duration=10.0,
+        duration=20.0,
         width=1280,
         height=720,
     ):
+        print(output_path)
         import matplotlib
         import matplotlib.animation as animation
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
 
-        if not animation.writers.is_available("ffmpeg"):
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        is_gif = output_path.suffix.lower() == ".gif"
+        if not is_gif and not animation.writers.is_available("ffmpeg"):
             import imageio_ffmpeg
 
             matplotlib.rcParams["animation.ffmpeg_path"] = (
                 imageio_ffmpeg.get_ffmpeg_exe()
             )
 
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         frame_count = max(2, int(round(float(fps) * float(duration))))
         times = np.linspace(self.t_start, self.t_end, frame_count)
 
@@ -536,42 +516,31 @@ class MuJoCoVehicleVisualizer:
             extent=(-0.5, width - 0.5, height - 0.5, -0.5),
         )
         ax.axis("off")
-        ax.text(
-            18,
-            48,
-            self._mode_legend_text(),
-            va="top",
-            ha="left",
-            fontsize=12,
-            color="black",
-            bbox=self._text_box_style(),
-        )
-        active_text = ax.text(
-            18,
-            height - 48,
-            "",
-            va="bottom",
-            ha="left",
-            fontsize=12,
-            color="black",
-            bbox=self._text_box_style(),
-        )
+        self._add_mode_legend_overlay(ax, width, height)
         self._add_cost_colorbar_overlay(ax, width, height)
+        timeline_artists = self._add_condition_timeline_overlay(
+            ax, width, height, self.t_start
+        )
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        writer = animation.FFMpegWriter(
-            fps=fps,
-            codec="libx264",
-            bitrate=3200,
-            extra_args=["-pix_fmt", "yuv420p"],
-        )
+        if is_gif:
+            writer = animation.PillowWriter(fps=fps)
+        else:
+            writer = animation.FFMpegWriter(
+                fps=fps,
+                codec="libx264",
+                bitrate=3200,
+                extra_args=["-pix_fmt", "yuv420p"],
+            )
         try:
             with writer.saving(fig, str(output_path), dpi=100):
                 for frame_t in times:
                     self._set_poses(frame_t)
                     renderer.update_scene(self.data, camera="overview")
                     image_artist.set_data(self._reframe_render(renderer.render()))
-                    active_text.set_text(self._active_modes_text(frame_t))
+                    self._update_condition_timeline_overlay(
+                        timeline_artists, frame_t
+                    )
                     writer.grab_frame()
         finally:
             renderer.close()
@@ -592,29 +561,199 @@ class MuJoCoVehicleVisualizer:
             extent=(-0.5, width - 0.5, height - 0.5, -0.5),
         )
         ax.axis("off")
-        ax.text(
-            18,
-            48,
-            self._mode_legend_text(),
-            va="top",
-            ha="left",
-            fontsize=12,
-            color="black",
-            bbox=self._text_box_style(),
-        )
-        ax.text(
-            18,
-            height - 48,
-            self._active_modes_text(t),
-            va="bottom",
-            ha="left",
-            fontsize=12,
-            color="black",
-            bbox=self._text_box_style(),
-        )
+        self._add_mode_legend_overlay(ax, width, height)
         self._add_cost_colorbar_overlay(ax, width, height)
+        self._add_condition_timeline_overlay(ax, width, height, t)
         fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         fig.savefig(output_path, dpi=100)
+
+    def _add_condition_timeline_overlay(self, ax, width, height, t):
+        from matplotlib.patches import Rectangle
+
+        label_width = max(168.0, width * 0.145)
+        strip_x0 = max(204.0, width * 0.18)
+        strip_x1 = width - max(86.0, width * 0.075)
+        strip_width = strip_x1 - strip_x0
+        lane_height = max(18.0, height * 0.032)
+        lane_gap = max(10.0, height * 0.016)
+        total_lane_height = len(self.playbacks) * lane_height + (
+            len(self.playbacks) - 1
+        ) * lane_gap
+        strip_y0 = height - total_lane_height - max(22.0, height * 0.036)
+
+        ax.add_patch(
+            Rectangle(
+                (strip_x0 - label_width - 16.0, strip_y0 - 10.0),
+                strip_width + label_width + 32.0,
+                total_lane_height + 20.0,
+                facecolor="white",
+                alpha=0.76,
+                edgecolor="none",
+                zorder=6,
+            )
+        )
+
+        for idx, playback in enumerate(self.playbacks):
+            lane_y = strip_y0 + idx * (lane_height + lane_gap)
+            ax.text(
+                strip_x0 - 10.0,
+                lane_y + 0.5 * lane_height,
+                playback.label.replace(" trajectory", ""),
+                ha="right",
+                va="center",
+                fontsize=15,
+                color="black",
+                zorder=8,
+            )
+            for segment_t0, segment_t1, mode in self._mode_segments(
+                playback.solution
+            ):
+                x0 = self._timeline_x(segment_t0, strip_x0, strip_x1)
+                x1 = self._timeline_x(segment_t1, strip_x0, strip_x1)
+                ax.add_patch(
+                    Rectangle(
+                        (x0, lane_y),
+                        max(x1 - x0, 1.2),
+                        lane_height,
+                        facecolor=MODE_COLORS.get(mode, MODE_COLORS[3]),
+                        edgecolor="none",
+                        zorder=7,
+                    )
+                )
+
+        current_x = self._timeline_x(t, strip_x0, strip_x1)
+        future_mask = Rectangle(
+            (current_x, strip_y0),
+            max(strip_x1 - current_x, 0.0),
+            total_lane_height,
+            facecolor="white",
+            alpha=0.43,
+            edgecolor="none",
+            zorder=8,
+        )
+        ax.add_patch(future_mask)
+        marker = ax.plot(
+            [current_x, current_x],
+            [strip_y0 - 5.0, strip_y0 + total_lane_height + 5.0],
+            color="0.12",
+            linewidth=1.8,
+            zorder=9,
+        )[0]
+        return {
+            "future_mask": future_mask,
+            "marker": marker,
+            "strip_x0": strip_x0,
+            "strip_x1": strip_x1,
+        }
+
+    def _update_condition_timeline_overlay(self, artists, t):
+        current_x = self._timeline_x(
+            t,
+            artists["strip_x0"],
+            artists["strip_x1"],
+        )
+        artists["future_mask"].set_x(current_x)
+        artists["future_mask"].set_width(
+            max(artists["strip_x1"] - current_x, 0.0)
+        )
+        artists["marker"].set_xdata([current_x, current_x])
+
+    def _timeline_x(self, t, strip_x0, strip_x1):
+        duration = max(self.t_end - self.t_start, 1e-12)
+        fraction = np.clip((float(t) - self.t_start) / duration, 0.0, 1.0)
+        return strip_x0 + fraction * (strip_x1 - strip_x0)
+
+    @staticmethod
+    def _mode_segments(solution):
+        if hasattr(solution, "segments"):
+            return [
+                (
+                    float(segment.t[0]),
+                    float(segment.t[-1]),
+                    int(round(segment.y[5, 0])),
+                )
+                for segment in solution.segments
+            ]
+
+        modes = np.round(solution.y[5]).astype(int)
+        segments = []
+        segment_start = 0
+        for idx in range(1, len(solution.t)):
+            if modes[idx] == modes[segment_start]:
+                continue
+            segments.append(
+                (
+                    float(solution.t[segment_start]),
+                    float(solution.t[idx]),
+                    int(modes[segment_start]),
+                )
+            )
+            segment_start = idx
+        segments.append(
+            (
+                float(solution.t[segment_start]),
+                float(solution.t[-1]),
+                int(modes[segment_start]),
+            )
+        )
+        return segments
+
+    @staticmethod
+    def _mode_legend_bounds(width, height):
+        legend_width = min(width - 90.0, max(820.0, width * 0.78))
+        legend_height = max(88.0, height * 0.125)
+        legend_x0 = 0.5 * (width - legend_width)
+        legend_y0 = 16.0
+        return legend_width, legend_height, legend_x0, legend_y0
+
+    def _add_mode_legend_overlay(self, ax, width, height):
+        from matplotlib.patches import Rectangle
+
+        legend_width, legend_height, legend_x0, legend_y0 = (
+            self._mode_legend_bounds(width, height)
+        )
+
+        ax.add_patch(
+            Rectangle(
+                (legend_x0, legend_y0),
+                legend_width,
+                legend_height,
+                facecolor="white",
+                alpha=0.86,
+                edgecolor="0.35",
+                linewidth=0.9,
+                zorder=6,
+            )
+        )
+        item_x0 = legend_x0 + 28.0
+        item_gap = (legend_width - 56.0) / 3.0
+        swatch_size = max(24.0, min(34.0, height * 0.042))
+        legend_fontsize = max(16.0, min(20.0, width * 0.015))
+        item_y = legend_y0 + 0.5 * legend_height
+        for idx, mode in enumerate((1, 2, 3)):
+            x = item_x0 + idx * item_gap
+            ax.add_patch(
+                Rectangle(
+                    (x, item_y - 0.5 * swatch_size),
+                    swatch_size,
+                    swatch_size,
+                    facecolor=MODE_COLORS[mode],
+                    edgecolor="0.25",
+                    linewidth=0.8,
+                    zorder=7,
+                )
+            )
+            ax.text(
+                x + swatch_size + 10.0,
+                item_y,
+                self._mode_legend_label_text(mode),
+                ha="left",
+                va="center",
+                fontsize=legend_fontsize,
+                linespacing=0.9,
+                color="black",
+                zorder=7,
+            )
 
     def _add_cost_colorbar_overlay(self, ax, width, height):
         from matplotlib.patches import Rectangle
@@ -624,20 +763,20 @@ class MuJoCoVehicleVisualizer:
 
         xlim = ax.get_xlim()
         ylim = ax.get_ylim()
-        bar_height = max(160.0, height * 0.34)
-        bar_width = max(18.0, width * 0.018)
+        bar_height = max(230.0, height * 0.46)
+        bar_width = max(28.0, width * 0.026)
         right_margin = max(52.0, width * 0.045)
         bar_x1 = width - right_margin
         bar_x0 = bar_x1 - bar_width
-        bar_y0 = max(94.0, height * 0.17)
-        bar_y1 = bar_y0 + bar_height
 
         tick_label_width = max(44.0, width * 0.045)
-        box_pad_x = 14.0
-        box_x0 = bar_x0 - tick_label_width - box_pad_x
-        box_y0 = bar_y0 - 34.0
+        box_pad_x = 16.0
         box_width = tick_label_width + bar_width + 2.0 * box_pad_x
         box_height = bar_height + 54.0
+        box_x0 = bar_x0 - tick_label_width - box_pad_x
+        box_y0 = 0.5 * (height - box_height)
+        bar_y0 = box_y0 + 34.0
+        bar_y1 = bar_y0 + bar_height
         ax.add_patch(
             Rectangle(
                 (box_x0, box_y0),
@@ -729,13 +868,15 @@ class MuJoCoVehicleVisualizer:
         return f"{value:.2f}"
 
     @staticmethod
-    def _reframe_render(image, zoom=1.10, upward_shift_fraction=0.05):
-        if zoom <= 1.0:
+    def _reframe_render(
+        image, horizontal_zoom=1.30, vertical_zoom=1.10, upward_shift_fraction=0.05
+    ):
+        if horizontal_zoom <= 1.0 and vertical_zoom <= 1.0:
             return image
 
         height, width = image.shape[:2]
-        crop_height = int(round(height / zoom))
-        crop_width = int(round(width / zoom))
+        crop_height = int(round(height / vertical_zoom))
+        crop_width = int(round(width / horizontal_zoom))
         y_shift = int(round(height * upward_shift_fraction))
         y0 = height // 2 - crop_height // 2 + y_shift
         x0 = width // 2 - crop_width // 2
@@ -754,15 +895,12 @@ class MuJoCoVehicleVisualizer:
         }
 
     @staticmethod
-    def _mode_legend_text():
-        return "\n".join(
-            f"Mode {mode}: {MuJoCoVehicleVisualizer._mode_label_text(mode)}"
-            for mode in (1, 2, 3)
-        )
+    def _mode_label_text(mode):
+        return MODE_LABELS[mode]
 
     @staticmethod
-    def _mode_label_text(mode):
-        return f"{MODE_LABELS[mode]} ({MODE_COLOR_NAMES[mode]})"
+    def _mode_legend_label_text(mode):
+        return MODE_LABELS[mode].replace(" Measurements", "\nMeasurements")
 
     def _active_modes_text(self, t):
         return "\n".join(
@@ -773,7 +911,7 @@ class MuJoCoVehicleVisualizer:
     def _playback_status_text(self, playback, t):
         mode = self.pose_at(playback.solution, t).mode
         elapsed = self._elapsed_time(playback, t)
-        return f"t = {elapsed:5.2f} s | Mode {mode}: {MODE_LABELS[mode]}"
+        return f"t = {elapsed:5.2f} s | {self._mode_label_text(mode)}"
 
     @staticmethod
     def _elapsed_time(playback, t):
@@ -850,7 +988,12 @@ def main():
     parser.add_argument(
         "--video",
         type=Path,
-        help="Render an MP4 instead of opening the interactive MuJoCo viewer.",
+        help="Render an MP4 or GIF instead of opening the interactive MuJoCo viewer.",
+    )
+    parser.add_argument(
+        "--snapshot-time",
+        type=float,
+        help="Simulation time to use for a snapshot (defaults to the final time).",
     )
     parser.add_argument("--fps", type=float, default=60.0)
     parser.add_argument("--realtime-factor", type=float, default=1.0)
@@ -877,6 +1020,7 @@ def main():
     elif args.snapshot is not None:
         output_path = visualizer.render_snapshot(
             args.snapshot,
+            t=args.snapshot_time,
             width=args.width,
             height=args.height,
         )
