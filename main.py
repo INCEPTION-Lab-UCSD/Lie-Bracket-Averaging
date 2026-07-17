@@ -87,7 +87,7 @@ def run_oscillator_synchronization_simulation():
     eta_1 = 2.5
     N_o = 1
     t_1 = 0.0
-    t_2 = 20.0
+    t_2 = 10.0
 
     oscillator = oscillator_synchronization.Oscillator_Synchronization(
         r,
@@ -111,28 +111,28 @@ def run_global_es_sphere():
     epsilon = 1 / np.sqrt(8 * np.pi)
     omega = np.array([2, 3, 1])
     kappa = 4
-    x0 = np.array([-0.11, 0.11, -0.98])
-    x0 = np.append(x0, [2, 1.0])
+    # x0 = np.array([-0.11, 0.11, -0.98])
+    # x0 = np.append(x0, [2, 1.0])
     x_target = np.array([0, 0, 1], dtype=float)
     delta = 0.15
 
-    # x0 = np.array(
-    #     [
-    #         0.61918323,
-    #         -0.48181853,
-    #         -0.62005083,
-    #         1,  # start in Blue view
-    #         0.0,
-    #     ]
-    # )
+    x0 = np.array(
+        [
+            0.61918323,
+            -0.48181853,
+            -0.62005083,
+            1,  # start in Blue view
+            0.0,
+        ]
+    )
     t_1 = 0.0
-    t_2 = 15.0
+    t_2 = 10.0
     sphere_simulation = global_es_sphere.Global_ES_Sphere(
         x0, delta, omega, alpha, kappa, epsilon, t_1, t_2
     )
     solution = sphere_simulation.solve(x0, t_1)
     # sphere_simulation.plot_sphere_simulation(solution, x_target)
-    ani = sphere_simulation.animate_solution(solution, x_target, frame_step=1000)
+    ani = sphere_simulation.animate_solution(solution, x_target, frame_step=500)
     plt.show()
     return ani
 
@@ -140,5 +140,4 @@ def run_global_es_sphere():
 if __name__ == "__main__":
     # run_vehicle_trajectory_simulation()
     # run_oscillator_synchronization_simulation()
-    # run_oscillator_synchronization_simulation_multi_graph()
     run_global_es_sphere()

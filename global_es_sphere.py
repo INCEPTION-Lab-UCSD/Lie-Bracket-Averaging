@@ -30,7 +30,7 @@ MODE_VIEW_LABELS = {
     2: "Mode 2",
 }
 
-SPHERE_FIGSIZE = (9.5, 7.2)
+SPHERE_FIGSIZE = (9.5, 8.6)
 SPHERE_AXIS_PADDING = 1.12
 TRAJECTORY_LINEWIDTH = 0.9
 TRAJECTORY_OUTLINE_LINEWIDTH = TRAJECTORY_LINEWIDTH + 0.45
@@ -250,6 +250,48 @@ class Global_ES_Sphere:
         ax_mode.set_xlim(times[0], times[-1])
         ax_mode.margins(x=0)
 
+    def _plot_trajectory_panel(
+        self, ax_trajectory, times, x_points, theme=CHARCOAL_THEME
+    ):
+        """Plot the Cartesian coordinates of a sphere trajectory over time."""
+        self._apply_charcoal_2d_style(ax_trajectory, theme)
+        coordinate_colors = ("#60A5FA", "#FBBF24", "#C084FC")
+        component_lines = []
+        for coordinate, color in enumerate(coordinate_colors):
+            (line,) = ax_trajectory.plot(
+                times,
+                x_points[coordinate],
+                color=color,
+                linewidth=1.8,
+                label=rf"$x_{coordinate + 1}(t)$",
+                zorder=3,
+            )
+            component_lines.append(line)
+
+        ax_trajectory.axhline(
+            0.0,
+            color=theme["grid"],
+            linewidth=0.9,
+            alpha=0.7,
+            zorder=1,
+        )
+        ax_trajectory.set_ylabel(r"$x_i(t)$")
+        ax_trajectory.set_xlim(times[0], times[-1])
+        ax_trajectory.set_ylim(-1.1, 1.1)
+        ax_trajectory.set_yticks((-1.0, 0.0, 1.0))
+        ax_trajectory.margins(x=0)
+        self._apply_charcoal_legend_style(
+            ax_trajectory.legend(
+                loc="lower center",
+                bbox_to_anchor=(0.5, 1.02),
+                ncol=3,
+                fontsize=9,
+                borderaxespad=0.0,
+            ),
+            theme,
+        )
+        return tuple(component_lines)
+
     @staticmethod
     def _camera_facing_mask(ax, points):
         """Return the points on the camera-facing hemisphere."""
@@ -335,11 +377,11 @@ class Global_ES_Sphere:
         fig = plt.figure(figsize=SPHERE_FIGSIZE)
         fig.patch.set_facecolor(theme["figure"])
         grid_spec = fig.add_gridspec(
-            2,
+            3,
             4,
             width_ratios=[1.0, 6.2, 0.22, 1.0],
-            height_ratios=[7.4, 0.8],
-            hspace=0.04,
+            height_ratios=[7.4, 1.55, 0.8],
+            hspace=0.15,
             wspace=0.08,
             left=0.03,
             right=0.97,
@@ -348,7 +390,8 @@ class Global_ES_Sphere:
         )
         ax = fig.add_subplot(grid_spec[0, 1], projection="3d", computed_zorder=False)
         ax_colorbar = fig.add_subplot(grid_spec[0, 2])
-        ax_mode = fig.add_subplot(grid_spec[1, 1])
+        ax_trajectory = fig.add_subplot(grid_spec[1, 1])
+        ax_mode = fig.add_subplot(grid_spec[2, 1], sharex=ax_trajectory)
         ax.set_anchor("C")
         self._apply_charcoal_3d_style(ax, theme)
         ax.plot_surface(
@@ -432,8 +475,14 @@ class Global_ES_Sphere:
         ax.view_init(elev=10, azim=-45)
         self._apply_charcoal_legend_style(ax.legend(loc="upper left"), theme)
 
+        trajectory_component_lines = self._plot_trajectory_panel(
+            ax_trajectory, times, x_points, theme
+        )
         self._plot_mode_panel(ax_mode, times, q_values, theme)
+        ax_trajectory.tick_params(axis="x", which="both", labelbottom=False)
         fig._global_es_mode_axis = ax_mode
+        fig._global_es_trajectory_axis = ax_trajectory
+        fig._global_es_trajectory_component_lines = trajectory_component_lines
         fig._global_es_trajectory_outline = trajectory_outline
         fig._global_es_trajectory_line = trajectory_line
         fig._global_es_visibility_state = {
@@ -493,6 +542,7 @@ class Global_ES_Sphere:
         self._hide_3d_axis_labels_and_ticks(ax)
 
         ax_mode = getattr(fig, "_global_es_mode_axis", None)
+        ax_trajectory = getattr(fig, "_global_es_trajectory_axis", None)
         trajectory_outline = getattr(fig, "_global_es_trajectory_outline", None)
         trajectory_line = getattr(fig, "_global_es_trajectory_line", None)
         if trajectory_outline is None:
@@ -530,11 +580,27 @@ class Global_ES_Sphere:
         q_values = np.rint(states[3]).astype(int)
         x_points = r * x_points / np.linalg.norm(x_points, axis=0)
         trajectory = x_points
+        cost_values = 1.0 - trajectory[2] / r
 
         mode_line = None
         if ax_mode is not None and ax_mode.lines:
             mode_line = ax_mode.lines[0]
             mode_line.set_data([], [])
+
+        trajectory_component_lines = []
+        trajectory_component_points = []
+        for line in getattr(fig, "_global_es_trajectory_component_lines", ()):
+            line.set_data([], [])
+            trajectory_component_lines.append(line)
+            if ax_trajectory is not None:
+                (point,) = ax_trajectory.plot(
+                    [],
+                    [],
+                    marker="o",
+                    markersize=4,
+                    color=line.get_color(),
+                )
+                trajectory_component_points.append(point)
 
         current_point = ax.scatter(
             [],
@@ -558,14 +624,15 @@ class Global_ES_Sphere:
         }
         visibility_state["markers"].append(current_marker)
 
-        mode_text = ax.text2D(
+        cost_text = ax.text2D(
             0.97,
-            0.94,
+            0.95,
             "",
             transform=ax.transAxes,
             color=CHARCOAL_THEME["text"],
-            fontsize=11,
+            fontsize=10.5,
             ha="right",
+            va="top",
             bbox={
                 "boxstyle": "round,pad=0.3",
                 "facecolor": CHARCOAL_THEME["axes"],
@@ -580,7 +647,6 @@ class Global_ES_Sphere:
 
         def update(frame_idx):
             idx = frame_indices[frame_idx] + 1
-            active_mode = q_values[idx - 1]
             visibility_state["trajectory_count"] = idx
             current_marker["point"] = trajectory[:, idx - 1]
             current_point._offsets3d = (
@@ -589,12 +655,22 @@ class Global_ES_Sphere:
                 [trajectory[2, idx - 1]],
             )
             self._update_sphere_visibility(fig, ax)
-            mode_text.set_text(f"{MODE_VIEW_LABELS[int(active_mode)]}")
+            cost_text.set_text(
+                r"$J(x) = 1 - x_3$" "\n" rf"$J(x(t)) = {cost_values[idx - 1]:.3f}$"
+            )
             if mode_line is not None:
                 mode_line.set_data(times[:idx], q_values[:idx])
-            artists = [trajectory_outline, trajectory_line, current_point, mode_text]
+            for coordinate, (line, point) in enumerate(
+                zip(trajectory_component_lines, trajectory_component_points)
+            ):
+                line.set_data(times[:idx], trajectory[coordinate, :idx])
+                point.set_data([times[idx - 1]], [trajectory[coordinate, idx - 1]])
+
+            artists = [trajectory_outline, trajectory_line, current_point, cost_text]
             if mode_line is not None:
                 artists.append(mode_line)
+            artists.extend(trajectory_component_lines)
+            artists.extend(trajectory_component_points)
             return tuple(artists)
 
         ani = animation.FuncAnimation(

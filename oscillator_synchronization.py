@@ -394,18 +394,18 @@ class OscillatorSynchronization:
         """
         Evaluate the closed-loop vector field in polar coordinates (eq. 25):
 
-            ξ̇_i = 1 + α_i u_{i,k}(ξ, τ_2)
-            τ̇_1 = 1     (dwell-time timer; reset to 0 at each mode switch)
-            τ̇_2 = 1     (probing timer; never reset)
+            deta_i = 1 + α_i u_{i,k}(eta, tau_2)
+            dtau_1 = 1     (dwell-time timer; reset to 0 at each mode switch)
+            dtau_2 = 1     (probing timer; never reset)
 
         Parameters
         ----------
         state : np.ndarray, shape (r + 2,)
-            Full state [ξ_1, ..., ξ_r, τ_1, τ_2].
+            Full state [eta_1, ..., eta_r, tau_1, tau_2].
         Returns
         -------
         np.ndarray, shape (r + 2,)
-            Time derivative of the full state [ξ̇_1,...,ξ̇_r, τ̇_1, τ̇_2].
+            Time derivative of the full state [deta_1,...,deta_r, dtau_1, dtau_2].
         """
         u = self.feedback_controller(state, graph_index)
         alpha = self.tau[tau_index]
@@ -541,11 +541,11 @@ class OscillatorSynchronization:
     ):
         ax.set_title(rf"Oscillator {oscillator_index + 1} State", fontsize=11, pad=6)
         ax.set_xlabel(r"$t$")
-        ax.set_ylabel(rf"$\xi_{oscillator_index + 1}$")
+        ax.set_ylabel(rf"$\xi_{oscillator_index + 1}$", labelpad=-5)
         ax.set_xlim(t_start, t_end)
-        ax.set_ylim(0.0, 2 * np.pi)
-        ax.set_yticks([0.0, np.pi, 2 * np.pi])
-        ax.set_yticklabels(["0", r"$\pi$", r"$2\pi$"])
+        ax.set_ylim(-np.pi, np.pi)
+        ax.set_yticks([-np.pi, 0.0, np.pi])
+        ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
         if theme is not None:
             self._apply_dark_2d_axis_style(ax, theme)
             ax.grid(True, color=theme["grid"], alpha=0.6)
@@ -706,7 +706,7 @@ class OscillatorSynchronization:
             raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
 
         theme = CHARCOAL_THEME
-        fig = plt.figure(figsize=(12, 7))
+        fig = plt.figure(figsize=(9.6, 7))
         fig.patch.set_facecolor(theme["figure"])
         grid_spec = fig.add_gridspec(
             3,
@@ -817,12 +817,13 @@ class OscillatorSynchronization:
             mappable,
             ax=ax_torus,
             fraction=0.032,
-            pad=0.14,
+            pad=0.08,
             shrink=0.92,
         )
         colorbar.set_label(r"$J(\xi)$", rotation=270, labelpad=18)
         self._apply_dark_colorbar_style(colorbar, theme)
 
+        state_phases = np.angle(np.exp(1j * xi))
         for oscillator_index, ax_state in enumerate((ax_state_1, ax_state_2)):
             self._setup_oscillator_state_axis(
                 ax_state,
@@ -831,11 +832,11 @@ class OscillatorSynchronization:
                 t_end,
                 theme=theme,
             )
-            state_trace = self._wrapped_phase_trace(xi[oscillator_index])
+            state_trace = self._wrapped_phase_trace(state_phases[oscillator_index])
             ax_state.plot(t_eval, state_trace, color=trajectory_color, linewidth=2.5)
             ax_state.plot(
                 [t_eval[-1]],
-                [xi[oscillator_index, -1]],
+                [state_phases[oscillator_index, -1]],
                 marker="o",
                 color=trajectory_color,
                 markersize=5,
@@ -893,15 +894,15 @@ class OscillatorSynchronization:
             raise ValueError(f"graph_index must be in [0, {self.N_2 - 1}]")
 
         theme = CHARCOAL_THEME
-        fig = plt.figure(figsize=(12, 7))
+        fig = plt.figure(figsize=(9.6, 7))
         fig.patch.set_facecolor(theme["figure"])
         grid_spec = fig.add_gridspec(
             3,
             4,
-            width_ratios=[1.45, 1.45, 1.45, 1.0],
+            width_ratios=[1.45, 1.45, 1.45, 0.2],
             height_ratios=[1.25, 1.25, 0.65],
             hspace=0.55,
-            wspace=0.18,
+            wspace=0.25,
         )
         ax_circle_1 = fig.add_subplot(grid_spec[0, 0])
         ax_circle_2 = fig.add_subplot(grid_spec[1, 0])
@@ -962,7 +963,8 @@ class OscillatorSynchronization:
 
         t_eval = np.linspace(t_start, t_end, n_time)
         xi = np.mod(solution(t_eval)[:2], phase_max)
-        state_traces = tuple(self._wrapped_phase_trace(xi_i) for xi_i in xi)
+        state_phases = np.angle(np.exp(1j * xi))
+        state_traces = tuple(self._wrapped_phase_trace(phase) for phase in state_phases)
         for oscillator_index, ax_state in enumerate((ax_state_1, ax_state_2)):
             self._setup_oscillator_state_axis(
                 ax_state,
@@ -1024,7 +1026,7 @@ class OscillatorSynchronization:
             mappable,
             ax=ax_torus,
             fraction=0.032,
-            pad=0.14,
+            pad=0.08,
             shrink=0.92,
         )
 
@@ -1059,7 +1061,7 @@ class OscillatorSynchronization:
                 state_line.set_data(t_eval[:idx], state_traces[oscillator_index][:idx])
                 state_point.set_data(
                     [t_eval[idx - 1]],
-                    [xi[oscillator_index, idx - 1]],
+                    [state_phases[oscillator_index, idx - 1]],
                 )
             t_current = t_eval[idx - 1]
             mode = self._mode_at_time(t_current)
